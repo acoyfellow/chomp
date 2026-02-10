@@ -1,0 +1,15 @@
+[Unit]
+Description=chomp-ui dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/chomp-ui
+ExecStart=/opt/chomp-ui/chomp-ui -listen :8001
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

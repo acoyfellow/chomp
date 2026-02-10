@@ -101,19 +101,62 @@ opencode --message "$TASK_PROMPT" --dir "$TASK_DIR"
 
 Adding a platform = writing a 5-line shell script.
 
+## Dashboard (chomp-ui)
+
+Web UI for monitoring token budgets and managing tasks.
+
+![dashboard](screenshot.png)
+
+```bash
+# Build and run
+go build -o chomp-ui ./ui
+./chomp-ui
+# open http://localhost:8001
+```
+
+Connect platforms with API keys via `.env` or environment:
+
+```bash
+# .env
+OPENROUTER_API_KEY=sk-or-...
+GROQ_API_KEY=gsk_...
+GEMINI_API_KEY=AI...
+```
+
+Or via the API: `curl -X POST localhost:8001/api/platforms/groq/key -d '{"api_key":"gsk_..."}'`
+
+Keys are validated immediately against each provider's API. The dashboard shows **READY**, **NO KEY**, or **ERROR** per platform.
+
+### Dashboard API
+
+| Method | Path | What |
+|--------|------|------|
+| `GET` | `/` | Dashboard |
+| `GET` | `/api/state` | JSON state |
+| `POST` | `/api/tasks` | Create task |
+| `POST` | `/api/tasks/{id}/run` | Dispatch |
+| `DELETE` | `/api/tasks/{id}` | Delete |
+| `POST` | `/api/platforms/{slug}/key` | Set API key |
+
+Flags: `-listen :8001` `-chomp chomp` `-db chomp-ui.db`
+
 ## Structure
 
 ```
 chomp/
 ├── bin/chomp             # CLI (bash)
-├── state.json            # tasks + history
+├── state.json            # task queue (gitignored)
 ├── adapters/
-│   ├── exedev.sh         # exe.dev dispatch
-│   └── opencode.sh       # opencode dispatch
+│   ├── exedev.sh         # exe.dev adapter
+│   └── opencode.sh       # opencode adapter
+├── ui/
+│   ├── main.go           # dashboard server (~600 lines)
+│   └── dashboard.html    # embedded template (~500 lines)
+├── go.mod
 └── README.md
 ```
 
-No database. No server. One JSON file and some shell scripts.
+The CLI is one bash script. The dashboard is two files compiled into one binary.
 
 ## Design
 

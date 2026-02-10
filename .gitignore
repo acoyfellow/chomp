@@ -1,1 +1,6 @@
 state.json
+chomp-ui
+*.db
+*.db-wal
+*.db-shm
+.env
