@@ -261,6 +261,18 @@ function showUnlock(taskName) {
   setTimeout(() => div.remove(), 2600);
 }
 
+// ── Theme ──
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
+  localStorage.setItem('theme', isDark ? 'light' : 'dark');
+}
+// Restore saved preference
+(function(){
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+})();
+
 // ── Init ──
 renderSummary();
 renderContent();
