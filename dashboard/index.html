@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>chomp — loop dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">chomp<span class="accent">.</span></div>
+    <div class="header-stats" id="header-stats"></div>
+    <div class="header-actions">
+      <button class="btn btn-sm" onclick="addTask()">+ Add Task</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h3>Queue <span class="badge" id="queue-count">0</span></h3>
+        <div id="queue-list" class="task-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <h3>Completed <span class="badge badge-done" id="done-count">0</span></h3>
+        <div id="done-list" class="task-list"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="main-header">
+        <h2>Active Loops</h2>
+        <div class="filter-bar">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="running">Running</button>
+          <button class="filter-btn" data-filter="gating">Gating</button>
+          <button class="filter-btn" data-filter="handoff">Handoff</button>
+        </div>
+      </div>
+      <div id="loops-grid" class="loops-grid"></div>
+    </main>
+
+    <aside class="detail-panel" id="detail-panel">
+      <div class="detail-empty">Select a loop to inspect</div>
+    </aside>
+  </div>
+</div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
