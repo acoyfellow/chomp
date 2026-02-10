@@ -1,253 +1,246 @@
-let sel = null, filter = 'all';
+let currentTab = 'active';
+let selectedLoop = null;
 
-const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : ''+n;
+const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? Math.round(n/1e3)+'k' : ''+n;
+const circ = 113.1; // 2*PI*18
 
-function stats() {
-  const el = document.getElementById('top-stats');
+// ── Summary ──
+function renderSummary() {
   const burns = [...LOOPS,...DONE].reduce((s,t) => s+(t.totalTokens||t.tokens||0), 0);
   const sess = LOOPS.reduce((s,l) => s+l.sessions.length, 0);
-  const commits = LOOPS.reduce((s,l) => s+l.sessions.reduce((ss,se) => ss+(se.commits?.length||0),0),0);
-  const agents = new Set(); LOOPS.forEach(l => l.sessions.forEach(s => agents.add(s.agent)));
-  el.innerHTML = `
-    <div class="stat-pill"><span class="live-pip"></span><span class="stat-val">${LOOPS.length}</span> live</div>
-    <div class="stat-pill"><span class="stat-val">${sess}</span> sessions</div>
-    <div class="stat-pill"><span class="stat-val hot">${fmt(burns)}</span> burned</div>
-    <div class="stat-pill"><span class="stat-val">${commits}</span> commits</div>
-    <div class="stat-pill"><span class="stat-val">${agents.size}</span> agents</div>`;
+  const live = LOOPS.filter(l => l.state === 'running').length;
+  document.getElementById('summary').innerHTML = `
+    <div class="sum-item"><div class="sum-val"><span class="sum-live"></span>${live}</div><div class="sum-label">Live</div></div>
+    <div class="sum-item"><div class="sum-val">${LOOPS.length}</div><div class="sum-label">Loops</div></div>
+    <div class="sum-item"><div class="sum-val">${sess}</div><div class="sum-label">Sessions</div></div>
+    <div class="sum-item"><div class="sum-val hot">${fmt(burns)}</div><div class="sum-label">Burned</div></div>`;
 }
 
-function queue() {
-  document.getElementById('queue').innerHTML = QUEUE.map(t => `
-    <div class="q-item" onclick="dispatch('${t.id}')">
-      <div class="q-id">#${t.id} <span class="q-hint">dispatch \u2192</span></div>
-      <div class="q-text">${t.prompt}</div>
+// ── Content ──
+function renderContent() {
+  const el = document.getElementById('content');
+  if (currentTab === 'active') renderLoops(el);
+  else if (currentTab === 'queue') renderQueue(el);
+  else renderDone(el);
+}
+
+function renderLoops(el) {
+  if (!LOOPS.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">\u25ce</div><div class="empty-text">No active loops</div></div>'; return; }
+  el.innerHTML = LOOPS.map(loop => {
+    const gp = loop.gates.filter(g => g.status === 'pass').length;
+    const gt = loop.gates.length;
+    const pct = gt ? Math.round(gp/gt*100) : 0;
+    const offset = circ - (circ * pct / 100);
+    const agents = [...new Set(loop.sessions.map(s => s.agent))];
+    const color = loop.state === 'running' ? 'var(--green)' : loop.state === 'failing' ? 'var(--red)' : loop.state === 'gating' ? 'var(--blue)' : 'var(--orange)';
+
+    return `
+    <div class="card" onclick="openSheet('${loop.id}')">
+      <div class="card-top">
+        <div class="card-title">${loop.prompt}</div>
+        <div class="badge badge-${loop.state}">${loop.state}</div>
+      </div>
+      <div class="card-agents">
+        ${agents.map(a => `<div class="agent-chip"><div class="agent-dot" style="background:${AGENTS[a]?.color}"></div>${AGENTS[a]?.name}</div>`).join('')}
+      </div>
+      <div class="card-progress">
+        <div class="progress-ring">
+          <svg width="40" height="40" viewBox="0 0 40 40">
+            <circle class="progress-ring-bg" cx="20" cy="20" r="18"/>
+            <circle class="progress-ring-fill" cx="20" cy="20" r="18" stroke="${color}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/>
+          </svg>
+          <div class="progress-ring-text">${gp}/${gt}</div>
+        </div>
+        <div class="progress-info">
+          <div class="progress-label">${gp} of ${gt} gates passing</div>
+          <div class="progress-sub">${fmt(loop.totalTokens)} tokens · ${loop.sessions.length} sessions</div>
+        </div>
+      </div>
+      <div class="card-sessions">
+        ${loop.sessions.map(s => `<div class="ses-pip s-${s.outcome === 'active' ? 'active' : s.outcome}"></div>`).join('')}
+        <span class="ses-count">${loop.sessions.length} sessions</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderQueue(el) {
+  if (!QUEUE.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">\u2191</div><div class="empty-text">Queue empty</div></div>'; return; }
+  el.innerHTML = QUEUE.map(t => `
+    <div class="q-card" onclick="openPicker('dispatch','${t.id}')">
+      <div class="q-num">#${t.id}</div>
+      <div class="q-prompt">${t.prompt}</div>
     </div>`).join('');
 }
 
-function done() {
-  document.getElementById('completed').innerHTML = DONE.map(t => {
-    const dots = (t.agents||[]).map(a => `<div class="d-dot" style="background:${AGENTS[a]?.color||'#555'}" title="${AGENTS[a]?.name||a}"></div>`).join('');
-    return `<div class="d-item">
-      <div class="q-id">#${t.id} \u00b7 ${fmt(t.tokens)} \u00b7 ${t.sessions}s</div>
-      <div class="q-text">${t.prompt}</div>
-      <div class="d-agents">${dots}</div>
-    </div>`;
-  }).join('');
-}
-
-function loops() {
-  const list = filter === 'all' ? LOOPS : LOOPS.filter(l => l.state === filter || (filter === 'handoff' && l.state === 'handoff'));
-  document.getElementById('loops').innerHTML = list.map(loop => {
-    const gp = loop.gates.filter(g=>g.status==='pass').length;
-    const cm = loop.sessions.reduce((s,se)=>s+(se.commits?.length||0),0);
-    const ag = [...new Set(loop.sessions.map(s=>s.agent))];
+function renderDone(el) {
+  if (!DONE.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">\u2713</div><div class="empty-text">Nothing completed yet</div></div>'; return; }
+  el.innerHTML = DONE.map(t => {
+    const dots = (t.agents||[]).map(a => `<div class="agent-dot" style="background:${AGENTS[a]?.color};width:6px;height:6px;border-radius:50%"></div>`).join('');
     return `
-    <div class="loop ${sel?.id===loop.id?'sel':''}" onclick="pick('${loop.id}')">
-      <div class="loop-indicator ${loop.state}"></div>
-      <div class="loop-row1">
-        <div class="loop-title">${loop.prompt}</div>
-        <div class="loop-badge ${loop.state}">${loop.state}</div>
-      </div>
-      <div class="loop-row2">
-        <div class="agent-dots">${ag.map(a=>`<div class="agent-dot-sm" style="background:${AGENTS[a]?.color}" title="${AGENTS[a]?.name}"></div>`).join('')}</div>
-        <div class="loop-meta"><b>${loop.sessions.length}</b> sessions</div>
-        <div class="loop-meta"><b>${gp}</b>/${loop.gates.length} gates</div>
-        <div class="loop-meta"><b>${fmt(loop.totalTokens)}</b> tokens</div>
-        <div class="loop-meta"><b>${cm}</b> commits</div>
-      </div>
-      <div class="chain">
-        ${loop.sessions.map(s => {
-          const a = AGENTS[s.agent];
-          return `<div class="chain-pip c-${s.outcome === 'active' ? 'active' : s.outcome}" title="#${s.id} ${a?.name}/${s.model}">${s.id}</div>`;
-        }).join('')}
-      </div>
-      <div class="gate-track">
-        ${loop.gates.map(g=>`<div class="gate-seg g-${g.status}"></div>`).join('')}
+    <div class="d-card">
+      <div class="d-prompt">${t.prompt}</div>
+      <div class="d-meta">
+        <div class="d-agents-row">${dots}</div>
+        <span>${fmt(t.tokens)} tokens</span>
+        <span>${t.sessions} sessions</span>
       </div>
     </div>`;
   }).join('');
 }
 
-function pick(id) {
-  sel = LOOPS.find(l=>l.id===id)||null;
-  loops(); inspector();
+// ── Sheet (detail) ──
+function openSheet(id) {
+  selectedLoop = LOOPS.find(l => l.id === id);
+  if (!selectedLoop) return;
+  renderSheet();
+  document.getElementById('sheet-bg').classList.add('open');
+  document.getElementById('sheet').classList.add('open');
+}
+function closeSheet() {
+  document.getElementById('sheet-bg').classList.remove('open');
+  document.getElementById('sheet').classList.remove('open');
+  selectedLoop = null;
 }
 
-function inspector() {
-  const el = document.getElementById('inspector');
-  if (!sel) { el.innerHTML = '<div class="inspector-empty"><div class="inspector-empty-icon">\u25ce</div><div>Select a loop</div></div>'; return; }
-  const l = sel;
-  const gp = l.gates.filter(g=>g.status==='pass').length;
-  const bp = Math.min(100, l.totalTokens/1500000*100);
-  const cm = l.sessions.reduce((s,se)=>s+(se.commits?.length||0),0);
+function renderSheet() {
+  const l = selectedLoop;
+  if (!l) return;
+  const gp = l.gates.filter(g => g.status === 'pass').length;
+  const bp = Math.min(100, l.totalTokens / 1500000 * 100);
+  const cm = l.sessions.reduce((s, se) => s + (se.commits?.length || 0), 0);
 
-  // agent breakdown
-  const am = new Map();
-  l.sessions.forEach(s => {
-    const k = s.agent+'|'+s.model+'|'+s.router;
-    if (!am.has(k)) am.set(k, {agent:s.agent,model:s.model,router:s.router,sess:0,tok:0,cm:0});
-    const e = am.get(k); e.sess++; e.tok+=s.tokens; e.cm+=(s.commits?.length||0);
-  });
+  document.getElementById('sheet-body').innerHTML = `
+    <div class="badge badge-${l.state}" style="display:inline-block;margin-bottom:10px">${l.state}</div>
+    <div class="sh-title">${l.prompt}</div>
+    <div class="sh-dir">${l.dir}</div>
 
-  el.innerHTML = `
-  <div class="ins-head">
-    <div class="ins-id">#${l.id} \u00b7 <span class="loop-badge ${l.state}" style="display:inline">${l.state}</span></div>
-    <div class="ins-title">${l.prompt}</div>
-    <div class="ins-dir">${l.dir}</div>
-  </div>
-
-  <div class="ins-section">
-    <div class="ins-label">Token Burn</div>
-    <div class="tok-row"><span>${fmt(l.totalTokens)}</span><span>~1.5M</span></div>
-    <div class="tok-bar"><div class="tok-fill" style="width:${bp}%"></div></div>
-  </div>
-
-  <div class="ins-section">
-    <div class="ins-label">Agents \u00b7 Routers</div>
-    ${[...am.values()].map(a => {
-      const ag = AGENTS[a.agent]; const rt = ROUTERS[a.router];
-      return `<div class="ab-row">
-        <div class="ab-dot" style="background:${ag?.color}"></div>
-        <div class="ab-name">${ag?.name} <span style="color:var(--t4)">/ ${a.model}</span></div>
-        <div class="ab-router" style="border-left:2px solid ${rt?.color||'#555'}">${rt?.short||a.router}</div>
-      </div>
-      <div style="display:flex;gap:10px;padding:0 0 4px 16px;font-family:var(--mono);font-size:9px;color:var(--t4)">
-        <span>${a.sess} sess</span><span>${fmt(a.tok)} tok</span><span>${a.cm} commits</span>
-      </div>`;
-    }).join('')}
-  </div>
-
-  <div class="ins-section">
-    <div class="ins-label">Gates ${gp}/${l.gates.length}</div>
-    ${l.gates.map(g => `
-      <div class="gate-row">
-        <div class="gate-icon">${g.status==='pass'?'\u25cf':g.status==='fail'?'\u25cf':'\u25cb'}</div>
-        <div class="gate-name" style="${g.status==='pass'?'color:var(--green)':g.status==='fail'?'color:var(--red)':''}">${g.name}</div>
-        <div class="gate-st g-${g.status}">${g.status}</div>
-      </div>`).join('')}
-  </div>
-
-  <div class="ins-section">
-    <div class="ins-label">Sessions ${l.sessions.length} \u00b7 ${cm} commits</div>
-    ${l.sessions.map(s => {
-      const ag = AGENTS[s.agent]; const rt = ROUTERS[s.router];
-      return `<div class="ses-item">
-        <div class="ses-row1">
-          <div class="ses-dot s-${s.outcome==='active'?'active':s.outcome}"></div>
-          <div class="ses-num">#${s.id}</div>
-          <div class="ses-sum">${s.summary}</div>
-        </div>
-        <div class="ses-row2">
-          <span class="ses-agent"><span class="ses-agent-dot" style="background:${ag?.color}"></span>${ag?.name} / ${s.model}</span>
-          <span class="ses-agent" style="border-left:2px solid ${rt?.color}">${rt?.short}</span>
-          <span class="ses-meta">${fmt(s.tokens)} \u00b7 ${s.duration}</span>
-          ${(s.commits||[]).map(c=>`<span class="ses-sha">${c.substring(0,7)}</span>`).join('')}
-        </div>
-      </div>`;
-    }).join('')}
-  </div>
-
-  <div class="ins-section">
-    <div class="ins-label">Git Audit</div>
-    ${l.sessions.slice().reverse().flatMap(s => {
-      const ag = AGENTS[s.agent];
-      return (s.commits||[]).map(c =>
-        `<div class="git-line"><span class="git-sha">${c.substring(0,7)}</span><span class="git-msg">${s.summary.substring(0,30)}</span><span class="git-tag" style="color:${ag?.color}">${ag?.name}/${s.model}</span></div>`
-      );
-    }).join('')}
-  </div>
-
-  <div class="ins-actions">
-    ${l.state==='failing'?'<button class="btn-s danger">Kill</button>':''}
-    <button class="btn-s" onclick="swapAgent('${l.id}')">Swap Agent</button>
-    <button class="btn-s primary" onclick="dispatch(null,'${l.id}')">Re-dispatch</button>
-  </div>`;
-}
-
-// === MODAL ===
-let pickedAgent = null, pickedRouter = null;
-
-function dispatch(queueId, loopId) {
-  pickedAgent = null; pickedRouter = null;
-  const title = queueId
-    ? `Dispatch #${queueId}`
-    : `Re-dispatch loop #${loopId}`;
-  openModal(title, 'dispatch');
-}
-function swapAgent(loopId) {
-  pickedAgent = null; pickedRouter = null;
-  openModal(`Swap agent for #${loopId}`, 'swap');
-}
-
-function openModal(title, mode) {
-  const root = document.getElementById('modal-root');
-  root.innerHTML = `
-  <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-    <div class="modal-box">
-      <div class="modal-title">${title}</div>
-      <div class="modal-sub">Choose agent, model, and router</div>
-      <div class="modal-grid">
-        ${Object.entries(AGENTS).map(([id,a]) => `
-          <div class="modal-agent" data-a="${id}" onclick="pickAgent(this,'${id}')">
-            <div class="modal-agent-dot" style="background:${a.color}"></div>
-            <div class="modal-agent-name">${a.name}</div>
-            <div class="modal-agent-cli">${a.icon}</div>
-          </div>`).join('')}
-      </div>
-      <div class="modal-router-section">
-        <div class="ins-label">Router</div>
-        <div class="router-opts">
-          ${Object.entries(ROUTERS).map(([id,r]) => `
-            <div class="router-opt" data-r="${id}" onclick="pickRouter(this,'${id}')">
-              <div class="router-name" style="color:${r.color}">${r.short}</div>
-            </div>`).join('')}
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn-s" onclick="closeModal()">Cancel</button>
-        <button class="btn-s primary" onclick="confirmModal('${mode}')">${mode==='dispatch'?'\ud83d\ude80 Dispatch':'Swap & Go'}</button>
-      </div>
+    <div class="sh-section">
+      <div class="sh-label">Token Burn</div>
+      <div class="tok-labels"><span>${fmt(l.totalTokens)}</span><span>~1.5M</span></div>
+      <div class="tok-bar"><div class="tok-fill" style="width:${bp}%"></div></div>
     </div>
-  </div>`;
-}
-function pickAgent(el, id) {
-  document.querySelectorAll('.modal-agent').forEach(e=>e.classList.remove('picked'));
-  el.classList.add('picked'); pickedAgent = id;
-}
-function pickRouter(el, id) {
-  document.querySelectorAll('.router-opt').forEach(e=>e.classList.remove('picked'));
-  el.classList.add('picked'); pickedRouter = id;
-}
-function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
-function confirmModal(mode) {
-  if (!pickedAgent||!pickedRouter) return;
-  const a = AGENTS[pickedAgent], r = ROUTERS[pickedRouter];
-  closeModal();
-  // In real: chomp run --agent shelley --router cf-ai --model claude-sonnet-4
+
+    <div class="sh-section">
+      <div class="sh-label">Gates — ${gp} of ${l.gates.length}</div>
+      ${l.gates.map(g => {
+        const cls = g.status === 'pass' ? 'gp' : g.status === 'fail' ? 'gf' : 'gpn';
+        return `<div class="gate-row">
+          <div class="gate-dot ${cls}"></div>
+          <div class="gate-name">${g.name}</div>
+          <div class="gate-st ${cls}">${g.status}</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div class="sh-section">
+      <div class="sh-label">Sessions — ${l.sessions.length} runs · ${cm} commits</div>
+      ${l.sessions.map(s => {
+        const ag = AGENTS[s.agent]; const rt = ROUTERS[s.router];
+        const dotCls = s.outcome === 'active' ? 's-active' : 's-'+s.outcome;
+        return `<div class="sh-ses">
+          <div class="sh-ses-top">
+            <div class="sh-ses-dot ses-pip ${dotCls}"></div>
+            <div class="sh-ses-num">#${s.id}</div>
+            <div class="sh-ses-sum">${s.summary}</div>
+          </div>
+          <div class="sh-ses-meta">
+            <span class="sh-chip"><span class="sh-chip-dot" style="background:${ag?.color}"></span>${ag?.name}</span>
+            <span class="sh-chip" style="border-left:2px solid ${rt?.color}">${rt?.short}</span>
+            <span class="sh-tok">${fmt(s.tokens)} · ${s.duration}</span>
+            ${(s.commits||[]).map(c => `<span class="sh-sha">${c.substring(0,7)}</span>`).join(' ')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div class="sh-section">
+      <div class="sh-label">Git Audit</div>
+      ${l.sessions.slice().reverse().flatMap(s => {
+        const ag = AGENTS[s.agent];
+        return (s.commits||[]).map(c =>
+          `<div class="git-row"><span class="git-sha">${c.substring(0,7)}</span><span class="git-msg">${s.summary.substring(0,32)}</span><span class="git-agent" style="color:${ag?.color}">${ag?.name}</span></div>`
+        );
+      }).join('')}
+    </div>
+
+    <div class="sh-actions">
+      ${l.state === 'failing' ? '<button class="btn btn-danger">Kill Loop</button>' : ''}
+      <button class="btn btn-secondary" onclick="closeSheet();openPicker('swap','${l.id}')">Swap Agent</button>
+      <button class="btn btn-primary">Re-dispatch</button>
+    </div>`;
 }
 
-// === TABS ===
+// ── Picker (agent + router) ──
+let pickerMode = null, pickerTarget = null, pickedAgent = null, pickedRouter = null;
+
+function openPicker(mode, targetId) {
+  pickerMode = mode; pickerTarget = targetId;
+  pickedAgent = null; pickedRouter = null;
+  renderPicker();
+  document.getElementById('picker-bg').classList.add('open');
+  document.getElementById('picker').classList.add('open');
+}
+function closePicker() {
+  document.getElementById('picker-bg').classList.remove('open');
+  document.getElementById('picker').classList.remove('open');
+}
+
+function renderPicker() {
+  const title = pickerMode === 'dispatch' ? `Dispatch #${pickerTarget}` : `Swap agent`;
+  document.getElementById('picker-body').innerHTML = `
+    <div class="pick-title">${title}</div>
+    <div class="pick-sub">Choose agent and router</div>
+
+    <div class="pick-label">Agent</div>
+    <div class="pick-agents">
+      ${Object.entries(AGENTS).map(([id,a]) => `
+        <div class="pick-agent ${pickedAgent===id?'picked':''}" onclick="pickAgent('${id}')">
+          <div class="pick-agent-dot" style="background:${a.color}"></div>
+          <div class="pick-agent-name">${a.name}</div>
+        </div>`).join('')}
+    </div>
+
+    <div class="pick-label">Router</div>
+    <div class="pick-routers">
+      ${Object.entries(ROUTERS).map(([id,r]) => `
+        <div class="pick-router ${pickedRouter===id?'picked':''}" onclick="pickRouter('${id}')" style="${pickedRouter===id?'color:'+r.color:''}">
+          ${r.short}
+        </div>`).join('')}
+    </div>
+
+    <button class="btn btn-primary" style="width:100%" onclick="confirmPick()">${pickerMode==='dispatch'?'Dispatch':'Swap & Go'}</button>`;
+}
+
+function pickAgent(id) { pickedAgent = id; renderPicker(); }
+function pickRouter(id) { pickedRouter = id; renderPicker(); }
+function confirmPick() {
+  if (!pickedAgent || !pickedRouter) return;
+  closePicker();
+}
+
+// ── Tabs ──
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-  t.classList.add('active'); filter = t.dataset.f; loops();
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  t.classList.add('active');
+  currentTab = t.dataset.tab;
+  renderContent();
 }));
 
-function addTask() {
-  const p = prompt('Task:'); if(p) alert('chomp add "'+p+'"');
-}
-
-// Tick
+// ── Tick ──
 setInterval(() => {
   LOOPS.forEach(l => {
-    if (l.state==='running') {
-      l.totalTokens += Math.floor(Math.random()*600)+100;
-      const a = l.sessions.find(s=>s.outcome==='active');
-      if(a) a.tokens += Math.floor(Math.random()*600)+100;
+    if (l.state === 'running') {
+      const inc = Math.floor(Math.random()*500)+100;
+      l.totalTokens += inc;
+      const a = l.sessions.find(s => s.outcome === 'active');
+      if (a) a.tokens += inc;
     }
   });
-  stats();
-  if(sel) inspector();
-}, 2500);
+  renderSummary();
+  if (selectedLoop) renderSheet();
+}, 3000);
 
-// Init
-stats(); queue(); done(); loops();
+// ── Init ──
+renderSummary();
+renderContent();

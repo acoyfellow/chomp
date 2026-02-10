@@ -2,69 +2,52 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>chomp</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<!-- Boot -->
 <div id="boot" class="boot">
-  <div class="boot-inner">
-    <div class="boot-mark">chomp<span>.</span></div>
-    <div class="boot-sub">burn every free token</div>
-    <div class="boot-bar"><div class="boot-fill"></div></div>
-  </div>
+  <div class="boot-mark">chomp<span>.</span></div>
+  <div class="boot-line"></div>
 </div>
 
-<div id="app" class="app hidden">
-  <!-- Top bar -->
-  <header class="top-bar">
-    <div class="top-left">
-      <span class="mark">chomp<span class="mark-dot">.</span></span>
-    </div>
-    <div class="top-center" id="top-stats"></div>
-    <div class="top-right">
-      <button class="btn-ghost" onclick="addTask()">+ task</button>
-    </div>
-  </header>
+<!-- App -->
+<div id="app" class="app">
 
-  <!-- Main content -->
-  <div class="stage">
-    <!-- Left: Queue + Done -->
-    <nav class="rail">
-      <div class="rail-label">Queue</div>
-      <div id="queue"></div>
-      <div class="rail-divider"></div>
-      <div class="rail-label">Completed</div>
-      <div id="completed"></div>
-    </nav>
+  <!-- Summary strip -->
+  <div class="summary" id="summary"></div>
 
-    <!-- Center: Loops -->
-    <section class="arena">
-      <div class="arena-header">
-        <div class="arena-tabs" id="arena-tabs">
-          <button class="tab active" data-f="all">All</button>
-          <button class="tab" data-f="running">Live</button>
-          <button class="tab" data-f="gating">Gating</button>
-          <button class="tab" data-f="failing">Failing</button>
-        </div>
-      </div>
-      <div id="loops" class="loops"></div>
-    </section>
-
-    <!-- Right: Inspector -->
-    <aside class="inspector" id="inspector">
-      <div class="inspector-empty">
-        <div class="inspector-empty-icon">◎</div>
-        <div>Select a loop</div>
-      </div>
-    </aside>
+  <!-- Tab bar (top) -->
+  <div class="tabs">
+    <button class="tab active" data-tab="active">Active</button>
+    <button class="tab" data-tab="queue">Queue</button>
+    <button class="tab" data-tab="done">Done</button>
   </div>
+
+  <!-- Scrollable content -->
+  <div class="content" id="content"></div>
+
 </div>
 
-<div id="modal-root"></div>
+<!-- Detail sheet -->
+<div id="sheet-bg" class="sheet-bg" onclick="closeSheet()"></div>
+<div id="sheet" class="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<!-- Agent picker -->
+<div id="picker-bg" class="sheet-bg" onclick="closePicker()"></div>
+<div id="picker" class="sheet picker-sheet">
+  <div class="sheet-handle"></div>
+  <div class="picker-body" id="picker-body"></div>
+</div>
 
 <script src="data.js"></script>
 <script src="app.js"></script>
