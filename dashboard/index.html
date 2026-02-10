@@ -3,49 +3,69 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>chomp — loop dashboard</title>
+<title>chomp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app">
-  <header>
-    <div class="logo">chomp<span class="accent">.</span></div>
-    <div class="header-stats" id="header-stats"></div>
-    <div class="header-actions">
-      <button class="btn btn-sm" onclick="addTask()">+ Add Task</button>
+<div id="boot" class="boot">
+  <div class="boot-inner">
+    <div class="boot-mark">chomp<span>.</span></div>
+    <div class="boot-sub">burn every free token</div>
+    <div class="boot-bar"><div class="boot-fill"></div></div>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <!-- Top bar -->
+  <header class="top-bar">
+    <div class="top-left">
+      <span class="mark">chomp<span class="mark-dot">.</span></span>
+    </div>
+    <div class="top-center" id="top-stats"></div>
+    <div class="top-right">
+      <button class="btn-ghost" onclick="addTask()">+ task</button>
     </div>
   </header>
 
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-section">
-        <h3>Queue <span class="badge" id="queue-count">0</span></h3>
-        <div id="queue-list" class="task-list"></div>
-      </div>
-      <div class="sidebar-section">
-        <h3>Completed <span class="badge badge-done" id="done-count">0</span></h3>
-        <div id="done-list" class="task-list"></div>
-      </div>
-    </aside>
+  <!-- Main content -->
+  <div class="stage">
+    <!-- Left: Queue + Done -->
+    <nav class="rail">
+      <div class="rail-label">Queue</div>
+      <div id="queue"></div>
+      <div class="rail-divider"></div>
+      <div class="rail-label">Completed</div>
+      <div id="completed"></div>
+    </nav>
 
-    <main class="main">
-      <div class="main-header">
-        <h2>Active Loops</h2>
-        <div class="filter-bar">
-          <button class="filter-btn active" data-filter="all">All</button>
-          <button class="filter-btn" data-filter="running">Running</button>
-          <button class="filter-btn" data-filter="gating">Gating</button>
-          <button class="filter-btn" data-filter="handoff">Handoff</button>
+    <!-- Center: Loops -->
+    <section class="arena">
+      <div class="arena-header">
+        <div class="arena-tabs" id="arena-tabs">
+          <button class="tab active" data-f="all">All</button>
+          <button class="tab" data-f="running">Live</button>
+          <button class="tab" data-f="gating">Gating</button>
+          <button class="tab" data-f="failing">Failing</button>
         </div>
       </div>
-      <div id="loops-grid" class="loops-grid"></div>
-    </main>
+      <div id="loops" class="loops"></div>
+    </section>
 
-    <aside class="detail-panel" id="detail-panel">
-      <div class="detail-empty">Select a loop to inspect</div>
+    <!-- Right: Inspector -->
+    <aside class="inspector" id="inspector">
+      <div class="inspector-empty">
+        <div class="inspector-empty-icon">◎</div>
+        <div>Select a loop</div>
+      </div>
     </aside>
   </div>
 </div>
+
+<div id="modal-root"></div>
+
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>
