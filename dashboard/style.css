@@ -167,6 +167,36 @@ body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:15px
 .empty-icon{font-size:32px;margin-bottom:8px;opacity:.3}
 .empty-text{font-size:14px}
 
+/* ── Level bar (XP style) ── */
+.level-bar{margin-top:12px}
+.level-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.level-label{font-size:11px;color:var(--t3)}
+.level-xp{font-size:11px;font-weight:600;color:var(--t2)}
+.level-track{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.level-fill{height:100%;border-radius:3px;transition:width .8s var(--ease)}
+.level-fill.lv-green{background:linear-gradient(90deg,#059669,var(--green))}
+.level-fill.lv-blue{background:linear-gradient(90deg,#2563eb,var(--blue))}
+.level-fill.lv-orange{background:linear-gradient(90deg,#c2410c,var(--orange))}
+.level-fill.lv-red{background:linear-gradient(90deg,#991b1b,var(--red))}
+
+/* ── Done card (unlocked) ── */
+.d-card{position:relative;overflow:hidden}
+.d-card::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:conic-gradient(from 0deg,transparent,rgba(232,200,114,.04),transparent,rgba(232,200,114,.04),transparent);animation:sheen 8s linear infinite;pointer-events:none}
+@keyframes sheen{to{transform:rotate(360deg)}}
+.d-check{font-size:16px;color:var(--green);margin-right:8px}
+.d-prompt{font-size:15px;font-weight:500;color:var(--t1)}
+.d-card .d-meta{margin-top:6px}
+
+/* ── Unlock flash (when all gates pass) ── */
+.unlock-flash{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;background:var(--bg);pointer-events:none;animation:unlockSeq 3.5s var(--ease) forwards}
+.unlock-content{text-align:center;opacity:0;transform:scale(.92) translateY(8px);animation:unlockIn .7s .4s var(--ease) forwards}
+.unlock-ring{width:72px;height:72px;border-radius:50%;border:3px solid var(--green);margin:0 auto 20px;display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--green);opacity:0;animation:unlockPop .5s .7s var(--ease) both}
+.unlock-title{font-size:24px;font-weight:700;letter-spacing:-0.5px;margin-bottom:6px}
+.unlock-sub{font-size:13px;color:var(--t3);letter-spacing:2px;text-transform:uppercase}
+@keyframes unlockIn{to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes unlockPop{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+@keyframes unlockSeq{0%,75%{opacity:1}100%{opacity:0;pointer-events:none}}
+
 /* ── Responsive (already mobile-first, add desktop) ── */
 @media(min-width:768px){
   .app{max-width:640px}

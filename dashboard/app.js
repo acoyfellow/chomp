@@ -60,6 +60,13 @@ function renderLoops(el) {
         ${loop.sessions.map(s => `<div class="ses-pip s-${s.outcome === 'active' ? 'active' : s.outcome}"></div>`).join('')}
         <span class="ses-count">${loop.sessions.length} sessions</span>
       </div>
+      <div class="level-bar">
+        <div class="level-row">
+          <span class="level-label">${loop.state === 'running' ? 'In progress' : loop.state === 'gating' ? 'Verifying' : loop.state === 'failing' ? 'Stuck' : 'Waiting'}</span>
+          <span class="level-xp">${fmt(loop.totalTokens)} burned</span>
+        </div>
+        <div class="level-track"><div class="level-fill lv-${loop.state === 'running' ? 'green' : loop.state === 'gating' ? 'blue' : loop.state === 'failing' ? 'red' : 'orange'}" style="width:${pct}%"></div></div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -79,10 +86,10 @@ function renderDone(el) {
     const dots = (t.agents||[]).map(a => `<div class="agent-dot" style="background:${AGENTS[a]?.color};width:6px;height:6px;border-radius:50%"></div>`).join('');
     return `
     <div class="d-card">
-      <div class="d-prompt">${t.prompt}</div>
+      <div class="d-prompt"><span class="d-check">\u2713</span>${t.prompt}</div>
       <div class="d-meta">
         <div class="d-agents-row">${dots}</div>
-        <span>${fmt(t.tokens)} tokens</span>
+        <span>${fmt(t.tokens)} burned</span>
         <span>${t.sessions} sessions</span>
       </div>
     </div>`;
@@ -240,6 +247,19 @@ setInterval(() => {
   renderSummary();
   if (selectedLoop) renderSheet();
 }, 3000);
+
+// ── Unlock flash (call when all gates pass) ──
+function showUnlock(taskName) {
+  const div = document.createElement('div');
+  div.className = 'unlock-flash';
+  div.innerHTML = `<div class="unlock-content">
+    <div class="unlock-ring">\u2713</div>
+    <div class="unlock-title">${taskName}</div>
+    <div class="unlock-sub">All gates passed</div>
+  </div>`;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 2600);
+}
 
 // ── Init ──
 renderSummary();
