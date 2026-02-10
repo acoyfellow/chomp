@@ -1,0 +1,321 @@
+#!/usr/bin/env bash
+# chomp - task queue for AI agents
+# Burn every free token you're given.
+
+set -euo pipefail
+
+CHOMP_DIR="${CHOMP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_FILE="$CHOMP_DIR/state.json"
+ADAPTERS_DIR="$CHOMP_DIR/adapters"
+
+# --- Helpers ---
+
+init_state() {
+  [ -f "$STATE_FILE" ] || echo '{"tasks":[],"next_id":1}' > "$STATE_FILE"
+}
+
+read_state() {
+  init_state
+  cat "$STATE_FILE"
+}
+
+write_state() {
+  local tmp="$STATE_FILE.tmp"
+  cat > "$tmp"
+  mv "$tmp" "$STATE_FILE"
+}
+
+now() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+# --- Commands ---
+
+cmd_add() {
+  local prompt="" dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir) dir="$2"; shift 2 ;;
+      *) prompt="${prompt:+$prompt }$1"; shift ;;
+    esac
+  done
+
+  if [ -z "$prompt" ]; then
+    echo "Usage: chomp add \"task description\" [--dir /path]"
+    exit 1
+  fi
+
+  local state id
+  state=$(read_state)
+  id=$(echo "$state" | jq -r '.next_id')
+
+  local task
+  task=$(jq -n \
+    --arg id "$id" \
+    --arg prompt "$prompt" \
+    --arg dir "$dir" \
+    --arg created "$(now)" \
+    '{
+      id: $id,
+      prompt: $prompt,
+      dir: (if $dir == "" then null else $dir end),
+      status: "queued",
+      created: $created,
+      result: null,
+      platform: null,
+      tokens: null
+    }'
+  )
+
+  echo "$state" | jq \
+    --argjson task "$task" \
+    '.tasks += [$task] | .next_id += 1' | write_state
+
+  echo "Added task #$id: $prompt"
+}
+
+cmd_list() {
+  local state
+  state=$(read_state)
+  local count
+  count=$(echo "$state" | jq '.tasks | length')
+
+  if [ "$count" = "0" ]; then
+    echo "No tasks. Feed me: chomp add \"something\""
+    return
+  fi
+
+  echo "ID  STATUS    PROMPT"
+  echo "--  ------    ------"
+  echo "$state" | jq -r '.tasks[] | "\(.id)   \(.status)\(" " * (9 - (.status | length)))\(.prompt[:60])"'
+}
+
+cmd_status() {
+  local state
+  state=$(read_state)
+
+  local queued active done failed total_tokens
+  queued=$(echo "$state" | jq '[.tasks[] | select(.status=="queued")] | length')
+  active=$(echo "$state" | jq '[.tasks[] | select(.status=="active")] | length')
+  done=$(echo "$state" | jq '[.tasks[] | select(.status=="done")] | length')
+  failed=$(echo "$state" | jq '[.tasks[] | select(.status=="failed")] | length')
+  total_tokens=$(echo "$state" | jq '[.tasks[] | .tokens // 0] | add // 0')
+
+  echo "chomp status"
+  echo "───────────────────────"
+  echo "Queued:   $queued"
+  echo "Active:   $active"
+  echo "Done:     $done"
+  echo "Failed:   $failed"
+  echo "Tokens:   $total_tokens spent"
+  echo ""
+
+  # Show active tasks
+  if [ "$active" -gt 0 ]; then
+    echo "Active tasks:"
+    echo "$state" | jq -r '.tasks[] | select(.status=="active") | "  #\(.id) [\(.platform // "?")]  \(.prompt[:50])"'
+  fi
+
+  # Show available adapters
+  echo ""
+  echo "Adapters:"
+  for adapter in "$ADAPTERS_DIR"/*.sh; do
+    [ -f "$adapter" ] || continue
+    local name
+    name=$(basename "$adapter" .sh)
+    if bash "$adapter" available 2>/dev/null; then
+      echo "  $name: ready"
+    else
+      echo "  $name: unavailable"
+    fi
+  done
+}
+
+cmd_run() {
+  local platform=""
+  local all=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --platform) platform="$2"; shift 2 ;;
+      --all) all=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  local state
+  state=$(read_state)
+
+  # Pick next queued task
+  local task
+  task=$(echo "$state" | jq -r '[.tasks[] | select(.status=="queued")] | first // empty')
+
+  if [ -z "$task" ]; then
+    echo "Nothing queued. Feed me: chomp add \"something\""
+    return
+  fi
+
+  local task_id task_prompt task_dir
+  task_id=$(echo "$task" | jq -r '.id')
+  task_prompt=$(echo "$task" | jq -r '.prompt')
+  task_dir=$(echo "$task" | jq -r '.dir // empty')
+
+  if [ "$all" = true ]; then
+    # Dispatch to all available adapters
+    for adapter in "$ADAPTERS_DIR"/*.sh; do
+      [ -f "$adapter" ] || continue
+      local name
+      name=$(basename "$adapter" .sh)
+      if bash "$adapter" available 2>/dev/null; then
+        echo "Dispatching #$task_id to $name..."
+        dispatch_task "$adapter" "$name" "$task_id" "$task_prompt" "$task_dir"
+      fi
+    done
+  else
+    # Pick adapter
+    local adapter=""
+    if [ -n "$platform" ]; then
+      adapter="$ADAPTERS_DIR/$platform.sh"
+      if [ ! -f "$adapter" ]; then
+        echo "No adapter: $platform"
+        echo "Available: $(ls "$ADAPTERS_DIR"/*.sh 2>/dev/null | xargs -I{} basename {} .sh | tr '\n' ' ')"
+        exit 1
+      fi
+    else
+      # Auto-pick first available
+      for a in "$ADAPTERS_DIR"/*.sh; do
+        [ -f "$a" ] || continue
+        if bash "$a" available 2>/dev/null; then
+          adapter="$a"
+          break
+        fi
+      done
+      if [ -z "$adapter" ]; then
+        echo "No adapters available."
+        exit 1
+      fi
+    fi
+
+    local name
+    name=$(basename "$adapter" .sh)
+    echo "Dispatching #$task_id to $name..."
+    dispatch_task "$adapter" "$name" "$task_id" "$task_prompt" "$task_dir"
+  fi
+}
+
+dispatch_task() {
+  local adapter="$1" name="$2" task_id="$3" prompt="$4" dir="$5"
+
+  # Mark active
+  local state
+  state=$(read_state)
+  echo "$state" | jq \
+    --arg id "$task_id" \
+    --arg platform "$name" \
+    '(.tasks[] | select(.id == $id)) |= (.status = "active" | .platform = $platform)' | write_state
+
+  # Export for adapter
+  export TASK_ID="$task_id"
+  export TASK_PROMPT="$prompt"
+  export TASK_DIR="${dir:-$(pwd)}"
+  export CHOMP_BIN="$CHOMP_DIR/bin/chomp"
+
+  # Run adapter
+  bash "$adapter" run
+}
+
+cmd_done() {
+  local id="$1"
+  local summary="${2:-}"
+  local tokens="${3:-0}"
+
+  local state
+  state=$(read_state)
+  echo "$state" | jq \
+    --arg id "$id" \
+    --arg result "$summary" \
+    --argjson tokens "${tokens}" \
+    '(.tasks[] | select(.id == $id)) |= (.status = "done" | .result = $result | .tokens = $tokens)' | write_state
+
+  echo "Task #$id done."
+}
+
+cmd_handoff() {
+  local id="$1"
+  local summary="${2:-}"
+
+  # Re-queue with context appended
+  local state
+  state=$(read_state)
+  local old_prompt
+  old_prompt=$(echo "$state" | jq -r --arg id "$id" '.tasks[] | select(.id == $id) | .prompt')
+
+  echo "$state" | jq \
+    --arg id "$id" \
+    --arg handoff "$summary" \
+    '(.tasks[] | select(.id == $id)) |= (.status = "queued" | .prompt = .prompt + "\n\nPREVIOUS PROGRESS: " + $handoff)' | write_state
+
+  echo "Task #$id re-queued with handoff context."
+}
+
+cmd_drop() {
+  local id="$1"
+  local state
+  state=$(read_state)
+  echo "$state" | jq --arg id "$id" '.tasks |= [.[] | select(.id != $id)]' | write_state
+  echo "Dropped task #$id."
+}
+
+cmd_log() {
+  local state
+  state=$(read_state)
+  local done_count
+  done_count=$(echo "$state" | jq '[.tasks[] | select(.status=="done")] | length')
+
+  if [ "$done_count" = "0" ]; then
+    echo "No completed tasks yet."
+    return
+  fi
+
+  echo "Completed tasks:"
+  echo "$state" | jq -r '.tasks[] | select(.status=="done") | "#\(.id) [\(.platform // "?")] \(.tokens // 0) tokens\n  \(.prompt[:60])\n  → \(.result // "no summary")\n"'
+}
+
+cmd_help() {
+  cat <<'EOF'
+chomp - task queue for AI agents
+
+Usage:
+  chomp add "task" [--dir /path]    Add a task
+  chomp list                        Show backlog
+  chomp status                      Show status + token spend
+  chomp run [--platform X] [--all]  Dispatch next task
+  chomp done <id> ["summary"] [tokens]  Mark task done
+  chomp handoff <id> "context"      Re-queue with progress
+  chomp drop <id>                   Remove a task
+  chomp log                         Show completed tasks
+  chomp help                        This message
+
+Environment:
+  CHOMP_DIR    Override chomp directory (default: script parent dir)
+
+More mouths: add adapters to $CHOMP_DIR/adapters/
+EOF
+}
+
+# --- Main ---
+
+command="${1:-help}"
+shift || true
+
+case "$command" in
+  add)     cmd_add "$@" ;;
+  list)    cmd_list ;;
+  status)  cmd_status ;;
+  run)     cmd_run "$@" ;;
+  done)    cmd_done "$@" ;;
+  handoff) cmd_handoff "$@" ;;
+  drop)    cmd_drop "$@" ;;
+  log)     cmd_log ;;
+  help)    cmd_help ;;
+  *)       echo "Unknown: $command"; cmd_help; exit 1 ;;
+esac
