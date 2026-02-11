@@ -386,6 +386,11 @@ function showUnlock(taskName) {
   setTimeout(() => div.remove(), 3600);
 }
 
+// ── Escape closes any open sheet ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeSheet(); closeCreate(); closeSettings(); }
+});
+
 // ── Poll + Init ──
 async function refresh() {
   await fetchState();
