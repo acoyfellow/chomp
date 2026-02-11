@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,7 @@ type Session struct {
 	Tokens    int    `json:"tokens"`
 	Result    string `json:"result,omitempty"`
 	Summary   string `json:"summary,omitempty"`
+	SandboxID string `json:"sandbox_id,omitempty"`
 }
 
 type Task struct {
@@ -45,6 +47,7 @@ type Task struct {
 	Result         string `json:"result"`
 	Platform       string `json:"platform"`
 	Model          string `json:"model,omitempty"`
+	RepoURL        string `json:"repo_url,omitempty"`
 	Tokens         int    `json:"tokens"`
 	BudgetExceeded bool      `json:"budget_exceeded,omitempty"`
 	Sessions       []Session `json:"sessions,omitempty"`
@@ -604,6 +607,73 @@ const (
 	perTaskTokenLimit = 300_000 // per-task soft cap (flag, don't kill)
 )
 
+// Sandbox worker URL
+// Sandbox worker URL
+var sandboxWorkerURL = getEnvOr("SANDBOX_WORKER_URL", "https://chomp-sandbox.coy.workers.dev")
+
+func getEnvOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// dispatchToSandbox POSTs to the sandbox Worker to spin up a container.
+// Non-blocking: errors are logged but don't fail the API response.
+func dispatchToSandbox(task Task, sess Session) {
+	go func() {
+		payload := map[string]string{
+			"taskId":  task.ID,
+			"prompt":  task.Prompt,
+			"agent":   sess.Agent,
+			"model":   sess.Model,
+		}
+		if task.RepoURL != "" {
+			payload["repoUrl"] = task.RepoURL
+		}
+		if task.Dir != "" {
+			payload["dir"] = task.Dir
+		}
+		b, _ := json.Marshal(payload)
+		resp, err := http.Post(sandboxWorkerURL+"/dispatch", "application/json", bytes.NewReader(b))
+		if err != nil {
+			log.Printf("[sandbox] dispatch error for task %s: %v", task.ID, err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			log.Printf("[sandbox] dispatch failed for task %s: %d %s", task.ID, resp.StatusCode, string(body))
+			return
+		}
+		var result struct {
+			SandboxID string `json:"sandboxId"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil && result.SandboxID != "" {
+			// Update session with sandbox ID
+			stateMu.Lock()
+			defer stateMu.Unlock()
+			st, err := readStateUnsafe()
+			if err != nil {
+				return
+			}
+			for i := range st.Tasks {
+				if st.Tasks[i].ID == task.ID {
+					for j := range st.Tasks[i].Sessions {
+						if st.Tasks[i].Sessions[j].ID == sess.ID {
+							st.Tasks[i].Sessions[j].SandboxID = result.SandboxID
+							break
+						}
+					}
+					break
+				}
+			}
+			_ = writeState(st)
+		}
+		log.Printf("[sandbox] dispatched task %s → sandbox %s", task.ID, result.SandboxID)
+	}()
+}
+
 // totalBurnedTokens sums all tokens across tasks.
 func totalBurnedTokens(s *State) int {
 	total := 0
@@ -636,6 +706,8 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var dispatchTask Task
+	var dispatchSess Session
 	found := false
 	for i := range s.Tasks {
 		if s.Tasks[i].ID == body.ID && s.Tasks[i].Status == "queued" {
@@ -650,6 +722,8 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 				StartedAt: time.Now().UTC().Format(time.RFC3339),
 			}
 			s.Tasks[i].Sessions = append(s.Tasks[i].Sessions, sess)
+			dispatchTask = s.Tasks[i]
+			dispatchSess = sess
 			found = true
 			break
 		}
@@ -667,6 +741,9 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 	cacheMu.Lock()
 	cached = nil
 	cacheMu.Unlock()
+
+	// Dispatch to Cloudflare Sandbox (async, non-blocking)
+	dispatchToSandbox(dispatchTask, dispatchSess)
 
 	w.Header().Set("HX-Trigger", "refreshTasks")
 	w.Header().Set("Content-Type", "application/json")
