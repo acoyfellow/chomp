@@ -2,7 +2,7 @@ let currentTab = 'active';
 let selectedLoop = null;
 
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? Math.round(n/1e3)+'k' : ''+n;
-const circ = 113.1; // 2*PI*18
+const circ = 113.1;
 
 // ── Summary ──
 function renderSummary() {
@@ -10,9 +10,9 @@ function renderSummary() {
   const sess = LOOPS.reduce((s,l) => s+l.sessions.length, 0);
   const live = LOOPS.filter(l => l.state === 'running').length;
   document.getElementById('summary').innerHTML = `
-    <div class="sum-item"><div class="sum-val"><span class="sum-live"></span>${live}</div><div class="sum-label">Live</div></div>
-    <div class="sum-item"><div class="sum-val">${LOOPS.length}</div><div class="sum-label">Loops</div></div>
-    <div class="sum-item"><div class="sum-val">${sess}</div><div class="sum-label">Sessions</div></div>
+    <div class="sum-item"><div class="sum-val">${live ? '<span class="sum-live"></span>' : ''}${live}</div><div class="sum-label">Live</div></div>
+    <div class="sum-item"><div class="sum-val">${LOOPS.length + QUEUE.length + DONE.length}</div><div class="sum-label">Tasks</div></div>
+    <div class="sum-item"><div class="sum-val">${sess || LOOPS.length}</div><div class="sum-label">Sessions</div></div>
     <div class="sum-item"><div class="sum-val hot">${fmt(burns)}</div><div class="sum-label">Burned</div></div>`;
 }
 
@@ -25,24 +25,32 @@ function renderContent() {
 }
 
 function renderLoops(el) {
-  if (!LOOPS.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">\u25ce</div><div class="empty-text">No active loops</div></div>'; return; }
+  if (!LOOPS.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">\u25ce</div>
+      <div class="empty-text">No active loops</div>
+      <div class="empty-sub">Add a task and dispatch it to get started</div>
+    </div>`;
+    return;
+  }
   el.innerHTML = LOOPS.map(loop => {
-    const gp = loop.gates.filter(g => g.status === 'pass').length;
     const gt = loop.gates.length;
+    const gp = loop.gates.filter(g => g.status === 'pass').length;
     const pct = gt ? Math.round(gp/gt*100) : 0;
     const offset = circ - (circ * pct / 100);
-    const agents = [...new Set(loop.sessions.map(s => s.agent))];
-    const color = loop.state === 'running' ? 'var(--green)' : loop.state === 'failing' ? 'var(--red)' : loop.state === 'gating' ? 'var(--blue)' : 'var(--orange)';
+    const agents = [...new Set(loop.sessions.map(s => s.agent).filter(Boolean))];
+    const hasGates = gt > 0;
+    const color = 'var(--green)';
 
     return `
     <div class="card" onclick="openSheet('${loop.id}')">
       <div class="card-top">
         <div class="card-title">${loop.prompt}</div>
-        <div class="badge badge-${loop.state}">${loop.state}</div>
+        <div class="badge badge-running">active</div>
       </div>
-      <div class="card-agents">
-        ${agents.map(a => `<div class="agent-chip"><div class="agent-dot" style="background:${AGENTS[a]?.color}"></div>${AGENTS[a]?.name}</div>`).join('')}
-      </div>
+      ${agents.length ? `<div class="card-agents">${agents.map(a => `<div class="agent-chip"><div class="agent-dot" style="background:${AGENTS[a]?.color||'#999'}"></div>${AGENTS[a]?.name||a}</div>`).join('')}</div>` : ''}
+      ${loop.platform ? `<div class="card-agents"><div class="agent-chip">${loop.platform}</div></div>` : ''}
+      ${hasGates ? `
       <div class="card-progress">
         <div class="progress-ring">
           <svg width="40" height="40" viewBox="0 0 40 40">
@@ -53,26 +61,32 @@ function renderLoops(el) {
         </div>
         <div class="progress-info">
           <div class="progress-label">${gp} of ${gt} gates passing</div>
-          <div class="progress-sub">${fmt(loop.totalTokens)} tokens · ${loop.sessions.length} sessions</div>
+          <div class="progress-sub">${fmt(loop.totalTokens)} tokens</div>
         </div>
-      </div>
-      <div class="card-sessions">
+      </div>` : `
+      <div class="card-meta-row">
+        <span class="card-meta">${fmt(loop.totalTokens)} tokens burned</span>
+      </div>`}
+      ${loop.sessions.length ? `<div class="card-sessions">
         ${loop.sessions.map(s => `<div class="ses-pip s-${s.outcome === 'active' ? 'active' : s.outcome}"></div>`).join('')}
         <span class="ses-count">${loop.sessions.length} sessions</span>
-      </div>
+      </div>` : ''}
       <div class="level-bar">
-        <div class="level-row">
-          <span class="level-label">${loop.state === 'running' ? 'In progress' : loop.state === 'gating' ? 'Verifying' : loop.state === 'failing' ? 'Stuck' : 'Waiting'}</span>
-          <span class="level-xp">${fmt(loop.totalTokens)} burned</span>
-        </div>
-        <div class="level-track"><div class="level-fill lv-${loop.state === 'running' ? 'green' : loop.state === 'gating' ? 'blue' : loop.state === 'failing' ? 'red' : 'orange'}" style="width:${pct}%"></div></div>
+        <div class="level-track"><div class="level-fill lv-green" style="width:${hasGates ? pct : 50}%"></div></div>
       </div>
     </div>`;
   }).join('');
 }
 
 function renderQueue(el) {
-  if (!QUEUE.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">\u2191</div><div class="empty-text">Queue empty</div></div>'; return; }
+  if (!QUEUE.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">\u2191</div>
+      <div class="empty-text">Queue empty</div>
+      <div class="empty-sub">chomp add "your task here"</div>
+    </div>`;
+    return;
+  }
   el.innerHTML = QUEUE.map(t => `
     <div class="q-card" onclick="openPicker('dispatch','${t.id}')">
       <div class="q-num">#${t.id}</div>
@@ -81,16 +95,24 @@ function renderQueue(el) {
 }
 
 function renderDone(el) {
-  if (!DONE.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">\u2713</div><div class="empty-text">Nothing completed yet</div></div>'; return; }
+  if (!DONE.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">\u2713</div>
+      <div class="empty-text">Nothing completed yet</div>
+      <div class="empty-sub">Completed tasks appear here</div>
+    </div>`;
+    return;
+  }
   el.innerHTML = DONE.map(t => {
-    const dots = (t.agents||[]).map(a => `<div class="agent-dot" style="background:${AGENTS[a]?.color};width:6px;height:6px;border-radius:50%"></div>`).join('');
+    const dots = (t.agents||[]).map(a => `<div class="agent-dot" style="background:${AGENTS[a]?.color||'#999'};width:6px;height:6px;border-radius:50%"></div>`).join('');
     return `
     <div class="d-card">
-      <div class="d-prompt"><span class="d-check">\u2713</span>${t.prompt}</div>
+      <div class="d-prompt"><span class="d-check">${t.status === 'failed' ? '\u2717' : '\u2713'}</span>${t.prompt}</div>
       <div class="d-meta">
-        <div class="d-agents-row">${dots}</div>
+        ${dots ? `<div class="d-agents-row">${dots}</div>` : ''}
+        ${t.platform ? `<span>${t.platform}</span>` : ''}
         <span>${fmt(t.tokens)} burned</span>
-        <span>${t.sessions} sessions</span>
+        ${t.result ? `<span>${t.result.substring(0,40)}</span>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -114,22 +136,22 @@ function renderSheet() {
   const l = selectedLoop;
   if (!l) return;
   const gp = l.gates.filter(g => g.status === 'pass').length;
-  const bp = Math.min(100, l.totalTokens / 1500000 * 100);
-  const cm = l.sessions.reduce((s, se) => s + (se.commits?.length || 0), 0);
+  const hasGates = l.gates.length > 0;
+  const hasSessions = l.sessions.length > 0;
 
   document.getElementById('sheet-body').innerHTML = `
-    <div class="badge badge-${l.state}" style="display:inline-block;margin-bottom:10px">${l.state}</div>
+    <div class="badge badge-running" style="display:inline-block;margin-bottom:10px">active</div>
     <div class="sh-title">${l.prompt}</div>
-    <div class="sh-dir">${l.dir}</div>
+    ${l.dir ? `<div class="sh-dir">${l.dir}</div>` : ''}
+    ${l.platform ? `<div class="sh-dir">Platform: ${l.platform}</div>` : ''}
 
     <div class="sh-section">
-      <div class="sh-label">Token Burn</div>
-      <div class="tok-labels"><span>${fmt(l.totalTokens)}</span><span>~1.5M</span></div>
-      <div class="tok-bar"><div class="tok-fill" style="width:${bp}%"></div></div>
+      <div class="sh-label">Tokens</div>
+      <div class="tok-labels"><span>${fmt(l.totalTokens)} burned</span></div>
     </div>
 
-    <div class="sh-section">
-      <div class="sh-label">Gates — ${gp} of ${l.gates.length}</div>
+    ${hasGates ? `<div class="sh-section">
+      <div class="sh-label">Gates \u2014 ${gp} of ${l.gates.length}</div>
       ${l.gates.map(g => {
         const cls = g.status === 'pass' ? 'gp' : g.status === 'fail' ? 'gf' : 'gpn';
         return `<div class="gate-row">
@@ -138,10 +160,10 @@ function renderSheet() {
           <div class="gate-st ${cls}">${g.status}</div>
         </div>`;
       }).join('')}
-    </div>
+    </div>` : ''}
 
-    <div class="sh-section">
-      <div class="sh-label">Sessions — ${l.sessions.length} runs · ${cm} commits</div>
+    ${hasSessions ? `<div class="sh-section">
+      <div class="sh-label">Sessions</div>
       ${l.sessions.map(s => {
         const ag = AGENTS[s.agent]; const rt = ROUTERS[s.router];
         const dotCls = s.outcome === 'active' ? 's-active' : 's-'+s.outcome;
@@ -151,30 +173,12 @@ function renderSheet() {
             <div class="sh-ses-num">#${s.id}</div>
             <div class="sh-ses-sum">${s.summary}</div>
           </div>
-          <div class="sh-ses-meta">
-            <span class="sh-chip"><span class="sh-chip-dot" style="background:${ag?.color}"></span>${ag?.name}</span>
-            <span class="sh-chip" style="border-left:2px solid ${rt?.color}">${rt?.short}</span>
-            <span class="sh-tok">${fmt(s.tokens)} · ${s.duration}</span>
-            ${(s.commits||[]).map(c => `<span class="sh-sha">${c.substring(0,7)}</span>`).join(' ')}
-          </div>
         </div>`;
       }).join('')}
-    </div>
-
-    <div class="sh-section">
-      <div class="sh-label">Git Audit</div>
-      ${l.sessions.slice().reverse().flatMap(s => {
-        const ag = AGENTS[s.agent];
-        return (s.commits||[]).map(c =>
-          `<div class="git-row"><span class="git-sha">${c.substring(0,7)}</span><span class="git-msg">${s.summary.substring(0,32)}</span><span class="git-agent" style="color:${ag?.color}">${ag?.name}</span></div>`
-        );
-      }).join('')}
-    </div>
+    </div>` : ''}
 
     <div class="sh-actions">
-      ${l.state === 'failing' ? '<button class="btn btn-danger">Kill Loop</button>' : ''}
-      <button class="btn btn-secondary" onclick="closeSheet();openPicker('swap','${l.id}')">Swap Agent</button>
-      <button class="btn btn-primary">Re-dispatch</button>
+      <button class="btn btn-secondary" onclick="closeSheet()">Close</button>
     </div>`;
 }
 
@@ -194,7 +198,7 @@ function closePicker() {
 }
 
 function renderPicker() {
-  const title = pickerMode === 'dispatch' ? `Dispatch #${pickerTarget}` : `Swap agent`;
+  const title = pickerMode === 'dispatch' ? `Dispatch #${pickerTarget}` : 'Swap agent';
   document.getElementById('picker-body').innerHTML = `
     <div class="pick-title">${title}</div>
     <div class="pick-sub">Choose agent and router</div>
@@ -234,21 +238,22 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   renderContent();
 }));
 
-// ── Tick ──
-setInterval(() => {
-  LOOPS.forEach(l => {
-    if (l.state === 'running') {
-      const inc = Math.floor(Math.random()*500)+100;
-      l.totalTokens += inc;
-      const a = l.sessions.find(s => s.outcome === 'active');
-      if (a) a.tokens += inc;
-    }
-  });
-  renderSummary();
-  if (selectedLoop) renderSheet();
-}, 3000);
+function addTask() {
+  const p = prompt('Task:'); if(p) alert('chomp add "'+p+'"');
+}
 
-// ── Unlock flash (call when all gates pass) ──
+// ── Theme ──
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
+  localStorage.setItem('theme', isDark ? 'light' : 'dark');
+}
+(function(){
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+})();
+
+// ── Unlock flash ──
 function showUnlock(taskName) {
   const div = document.createElement('div');
   div.className = 'unlock-flash';
@@ -258,21 +263,19 @@ function showUnlock(taskName) {
     <div class="unlock-sub">All gates passed</div>
   </div>`;
   document.body.appendChild(div);
-  setTimeout(() => div.remove(), 2600);
+  setTimeout(() => div.remove(), 3600);
 }
 
-// ── Theme ──
-function toggleTheme() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
-  localStorage.setItem('theme', isDark ? 'light' : 'dark');
+// ── Poll + Init ──
+async function refresh() {
+  await fetchState();
+  renderSummary();
+  renderContent();
+  if (selectedLoop) {
+    selectedLoop = LOOPS.find(l => l.id === selectedLoop.id) || null;
+    if (selectedLoop) renderSheet();
+  }
 }
-// Restore saved preference
-(function(){
-  const saved = localStorage.getItem('theme');
-  if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-})();
 
-// ── Init ──
-renderSummary();
-renderContent();
+refresh();
+setInterval(refresh, 3000);

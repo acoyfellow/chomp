@@ -1,5 +1,7 @@
 state.json
+chomp-server
 chomp-ui
+state/
 *.db
 *.db-wal
 *.db-shm
