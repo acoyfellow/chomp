@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setupTest(t *testing.T) func() {
@@ -1208,5 +1210,66 @@ func TestE2E_PerTaskBudgetFlag(t *testing.T) {
 	s, _ = readStateUnsafe()
 	if !s.Tasks[0].BudgetExceeded {
 		t.Fatal("should be flagged at/over 300k per-task limit")
+	}
+}
+
+func TestSandboxDispatch(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create a mock sandbox worker
+	received := make(chan map[string]string, 1)
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		received <- body
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"sandboxId":"task-%s","status":"started"}`, body["taskId"])
+	}))
+	defer mock.Close()
+
+	// Point sandbox dispatch at mock
+	old := sandboxWorkerURL
+	sandboxWorkerURL = mock.URL
+	defer func() { sandboxWorkerURL = old }()
+
+	// Create and run a task
+	postJSON(apiAddTask, `{"prompt":"test sandbox","agent":"pi","model":"test-model","repo_url":"https://github.com/test/repo"}`)
+	postJSON(apiRunTask, `{"id":"1"}`)
+
+	// Verify dispatch was called with correct payload
+	select {
+	case body := <-received:
+		if body["taskId"] != "1" {
+			t.Fatalf("expected taskId=1, got %s", body["taskId"])
+		}
+		if body["prompt"] != "test sandbox" {
+			t.Fatalf("expected prompt='test sandbox', got %s", body["prompt"])
+		}
+		if body["agent"] != "pi" {
+			t.Fatalf("expected agent=pi, got %s", body["agent"])
+		}
+		if body["model"] != "test-model" {
+			t.Fatalf("expected model=test-model, got %s", body["model"])
+		}
+		if body["repoUrl"] != "https://github.com/test/repo" {
+			t.Fatalf("expected repoUrl, got %s", body["repoUrl"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sandbox dispatch was not called within 2s")
+	}
+
+	// Give async goroutine time to write sandbox_id back
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify sandbox_id was saved on session
+	s, _ := readStateUnsafe()
+	if len(s.Tasks) == 0 {
+		t.Fatal("no tasks")
+	}
+	if len(s.Tasks[0].Sessions) == 0 {
+		t.Fatal("no sessions")
+	}
+	if s.Tasks[0].Sessions[0].SandboxID != "task-1" {
+		t.Fatalf("expected sandbox_id=task-1, got %s", s.Tasks[0].Sessions[0].SandboxID)
 	}
 }

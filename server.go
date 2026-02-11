@@ -583,6 +583,7 @@ func apiAddTask(w http.ResponseWriter, r *http.Request) {
 		Created:  time.Now().UTC().Format(time.RFC3339),
 		Platform: fields["agent"],
 		Model:    fields["model"],
+		RepoURL:  fields["repo_url"],
 	}
 	s.Tasks = append(s.Tasks, task)
 	s.NextID = id + 1
