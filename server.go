@@ -27,12 +27,22 @@ type State struct {
 	NextID int    `json:"next_id"`
 }
 
+var allowedKeys = map[string]bool{
+	"CLOUDFLARE_API_TOKEN":    true,
+	"CLOUDFLARE_ACCOUNT_ID":   true,
+	"CLOUDFLARE_AI_GATEWAY_ID": true,
+	"OPENCODE_ZEN_API_KEY":    true,
+	"OPENROUTER_API_KEY":      true,
+}
+
 var (
 	stateFile string
+	keysFile  string
 	cacheMu   sync.RWMutex
 	cached    *State
 	cachedAt  time.Time
 	stateMu   sync.Mutex
+	keysMu    sync.Mutex
 )
 
 func readState() (*State, error) {
@@ -134,6 +144,104 @@ func checkKey(name, envVar string) KeyStatus {
 		ks.Preview = maskKey(val)
 	}
 	return ks
+}
+
+// loadKeys reads state/keys.json and sets env vars on startup.
+func loadKeys() {
+	data, err := os.ReadFile(keysFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		log.Printf("warning: could not read keys file: %v", err)
+		return
+	}
+	var keys map[string]string
+	if err := json.Unmarshal(data, &keys); err != nil {
+		log.Printf("warning: could not parse keys file: %v", err)
+		return
+	}
+	for k, v := range keys {
+		if allowedKeys[k] {
+			os.Setenv(k, v)
+		}
+	}
+	log.Printf("loaded %d API key(s) from %s", len(keys), keysFile)
+}
+
+// saveKeys writes the current persisted keys map to state/keys.json.
+func saveKeys(keys map[string]string) error {
+	data, err := json.MarshalIndent(keys, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := keysFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, keysFile)
+}
+
+// readKeys loads the persisted keys map from disk.
+func readKeys() (map[string]string, error) {
+	data, err := os.ReadFile(keysFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]string{}, nil
+		}
+		return nil, err
+	}
+	var keys map[string]string
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+func apiConfigKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var body struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Key == "" {
+		http.Error(w, "need key", 400)
+		return
+	}
+	if !allowedKeys[body.Key] {
+		http.Error(w, fmt.Sprintf("key %q not in whitelist", body.Key), 400)
+		return
+	}
+
+	keysMu.Lock()
+	defer keysMu.Unlock()
+
+	keys, err := readKeys()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	if body.Value == "" {
+		// Delete
+		os.Unsetenv(body.Key)
+		delete(keys, body.Key)
+	} else {
+		// Set
+		os.Setenv(body.Key, body.Value)
+		keys[body.Key] = body.Value
+	}
+
+	if err := saveKeys(keys); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "key": body.Key})
 }
 
 func apiConfig(w http.ResponseWriter, r *http.Request) {
@@ -396,9 +504,14 @@ func main() {
 	stateDir := filepath.Join(dir, "state")
 	if info, err := os.Stat(stateDir); err == nil && info.IsDir() {
 		stateFile = filepath.Join(stateDir, "state.json")
+		keysFile = filepath.Join(stateDir, "keys.json")
 	} else {
 		stateFile = filepath.Join(dir, "state.json")
+		keysFile = filepath.Join(dir, "keys.json")
 	}
+
+	// Load persisted API keys into env vars
+	loadKeys()
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -410,6 +523,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", apiState)
 	mux.HandleFunc("/api/config", apiConfig)
+	mux.HandleFunc("/api/config/keys", apiConfigKeys)
 	mux.HandleFunc("/api/tasks", apiAddTask)
 	mux.HandleFunc("/api/tasks/run", apiRunTask)
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)

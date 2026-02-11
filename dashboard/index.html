@@ -21,10 +21,12 @@
 <div id="app" class="app">
 
   <!-- Summary strip -->
-  <div class="summary" id="summary"></div>
-  <div class="top-actions">
-    <button class="icon-btn" onclick="openSettings()" aria-label="Settings">⚙</button>
-    <button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+  <div class="summary-row">
+    <div class="summary" id="summary"></div>
+    <div class="top-actions">
+      <button class="icon-btn" onclick="openSettings()" aria-label="Settings">⚙</button>
+      <button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
   </div>
 
   <!-- Tab bar (top) -->
@@ -37,10 +39,10 @@
   <!-- Scrollable content -->
   <div class="content" id="content"></div>
 
-  <!-- FAB -->
-  <button class="fab" onclick="openAdd()" aria-label="Add task">+</button>
-
 </div>
+
+<!-- FAB (outside .app so position:fixed works despite transform) -->
+<button class="fab" onclick="openAdd()" aria-label="Add task">+</button>
 
 <!-- Detail sheet -->
 <div id="sheet-bg" class="sheet-bg" onclick="closeSheet()"></div>
