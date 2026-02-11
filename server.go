@@ -26,16 +26,28 @@ var staticCSS []byte
 
 var tmpl *template.Template
 
+type Session struct {
+	ID        string `json:"id"`
+	Agent     string `json:"agent"`
+	Model     string `json:"model"`
+	StartedAt string `json:"started_at"`
+	EndedAt   string `json:"ended_at,omitempty"`
+	Tokens    int    `json:"tokens"`
+	Result    string `json:"result,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+}
+
 type Task struct {
-	ID       string `json:"id"`
-	Prompt   string `json:"prompt"`
-	Dir      string `json:"dir"`
-	Status   string `json:"status"`
-	Created  string `json:"created"`
-	Result   string `json:"result"`
-	Platform string `json:"platform"`
-	Model    string `json:"model,omitempty"`
-	Tokens   int    `json:"tokens"`
+	ID       string    `json:"id"`
+	Prompt   string    `json:"prompt"`
+	Dir      string    `json:"dir"`
+	Status   string    `json:"status"`
+	Created  string    `json:"created"`
+	Result   string    `json:"result"`
+	Platform string    `json:"platform"`
+	Model    string    `json:"model,omitempty"`
+	Tokens   int       `json:"tokens"`
+	Sessions []Session `json:"sessions,omitempty"`
 }
 
 type State struct {
@@ -619,6 +631,13 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 			if body.Agent != "" {
 				s.Tasks[i].Platform = body.Agent
 			}
+			sess := Session{
+				ID:        fmt.Sprintf("s%d", len(s.Tasks[i].Sessions)+1),
+				Agent:     s.Tasks[i].Platform,
+				Model:     s.Tasks[i].Model,
+				StartedAt: time.Now().UTC().Format(time.RFC3339),
+			}
+			s.Tasks[i].Sessions = append(s.Tasks[i].Sessions, sess)
 			found = true
 			break
 		}
@@ -676,6 +695,20 @@ func apiDoneTask(w http.ResponseWriter, r *http.Request) {
 					s.Tasks[i].Tokens = tk
 				}
 			}
+			if n := len(s.Tasks[i].Sessions); n > 0 {
+				s.Tasks[i].Sessions[n-1].EndedAt = time.Now().UTC().Format(time.RFC3339)
+				s.Tasks[i].Sessions[n-1].Result = "done"
+				if fields["result"] != "" {
+					s.Tasks[i].Sessions[n-1].Summary = fields["result"]
+				}
+				if fields["tokens"] != "" {
+					var tk int
+					fmt.Sscanf(fields["tokens"], "%d", &tk)
+					if tk > 0 {
+						s.Tasks[i].Sessions[n-1].Tokens = tk
+					}
+				}
+			}
 			found = true
 			break
 		}
@@ -728,6 +761,9 @@ func apiUpdateTask(w http.ResponseWriter, r *http.Request) {
 				fmt.Sscanf(fields["tokens"], "%d", &tk)
 				if tk > 0 {
 					s.Tasks[i].Tokens = tk
+					if n := len(s.Tasks[i].Sessions); n > 0 {
+						s.Tasks[i].Sessions[n-1].Tokens = tk
+					}
 				}
 			}
 			if fields["result"] != "" {
@@ -739,6 +775,62 @@ func apiUpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		http.Error(w, "task not found", 404)
+		return
+	}
+
+	if err := writeState(s); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+
+	w.Header().Set("HX-Trigger", "refreshTasks")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func apiHandoffTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	fields := decodeBody(r)
+	if fields["id"] == "" {
+		http.Error(w, "need id", 400)
+		return
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := readStateUnsafe()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	found := false
+	for i := range s.Tasks {
+		if s.Tasks[i].ID == fields["id"] && s.Tasks[i].Status == "active" {
+			// Close current session
+			if n := len(s.Tasks[i].Sessions); n > 0 {
+				s.Tasks[i].Sessions[n-1].EndedAt = time.Now().UTC().Format(time.RFC3339)
+				s.Tasks[i].Sessions[n-1].Result = "handoff"
+				if fields["summary"] != "" {
+					s.Tasks[i].Sessions[n-1].Summary = fields["summary"]
+				}
+			}
+			// Re-queue the task
+			s.Tasks[i].Status = "queued"
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "task not found or not active", 404)
 		return
 	}
 
@@ -1222,11 +1314,44 @@ func partialsDetail(w http.ResponseWriter, r *http.Request) {
 		startedStr = t.Local().Format("Jan 2, 3:04 PM")
 	}
 
+	type sessionView struct {
+		Agent, Model, StartedStr, Duration, TokensStr, Result, Summary string
+	}
+	var sessions []sessionView
+	for _, sess := range task.Sessions {
+		sv := sessionView{
+			Agent:     sess.Agent,
+			Model:     sess.Model,
+			TokensStr: fmtTokens(sess.Tokens),
+			Result:    sess.Result,
+			Summary:   sess.Summary,
+		}
+		if t, err := time.Parse(time.RFC3339, sess.StartedAt); err == nil {
+			sv.StartedStr = t.Local().Format("Jan 2, 3:04 PM")
+		}
+		if sess.EndedAt != "" {
+			if st, err1 := time.Parse(time.RFC3339, sess.StartedAt); err1 == nil {
+				if et, err2 := time.Parse(time.RFC3339, sess.EndedAt); err2 == nil {
+					d := et.Sub(st)
+					if d < time.Minute {
+						sv.Duration = fmt.Sprintf("%ds", int(d.Seconds()))
+					} else {
+						sv.Duration = fmt.Sprintf("%dm", int(d.Minutes()))
+					}
+				}
+			}
+		} else {
+			sv.Duration = "running"
+		}
+		sessions = append(sessions, sv)
+	}
+
 	data := map[string]interface{}{
 		"ID": task.ID, "Prompt": task.Prompt, "Dir": task.Dir,
 		"AgentName": agentName(task.Platform), "AgentColor": agentColorStr(task.Platform),
 		"Elapsed": timeAgo(task.Created), "Stale": isStale(task.Created, 5),
 		"StartedStr": startedStr, "TokensStr": fmtTokens(task.Tokens),
+		"SessionCount": len(task.Sessions), "Sessions": sessions,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.ExecuteTemplate(w, "detail.html", data)
@@ -1442,6 +1567,7 @@ func main() {
 	mux.HandleFunc("/api/tasks/run", apiRunTask)
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)
 	mux.HandleFunc("/api/tasks/update", apiUpdateTask)
+	mux.HandleFunc("/api/tasks/handoff", apiHandoffTask)
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
 	mux.HandleFunc("/api/balance", apiBalance)
 

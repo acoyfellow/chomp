@@ -25,13 +25,32 @@
   </div>
   <div class="bg-white dark:bg-zinc-900 p-3">
     <div class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-0.5">Sessions</div>
-    <div class="text-[15px] font-semibold">—</div>
+    <div class="text-[15px] font-semibold">{{if .SessionCount}}{{.SessionCount}}{{else}}—{{end}}</div>
   </div>
 </div>
 
 <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Activity</div>
 <div class="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden mb-4">
+  {{if .Sessions}}
+  {{range .Sessions}}
+  <div class="p-3 border-b border-zinc-200 dark:border-zinc-700 last:border-b-0">
+    <div class="flex items-center justify-between mb-1">
+      <div class="text-sm font-semibold">{{.Agent}}{{if .Model}} · {{.Model}}{{end}}</div>
+      {{if .Result}}
+      <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded {{if eq .Result "done"}}bg-green-500/10 text-green-600{{else if eq .Result "handoff"}}bg-blue-500/10 text-blue-600{{else if eq .Result "failed"}}bg-red-500/10 text-red-600{{else}}bg-zinc-500/10 text-zinc-500{{end}}">{{.Result}}</span>
+      {{end}}
+    </div>
+    <div class="flex items-center gap-3 text-xs text-zinc-400">
+      {{if .StartedStr}}<span>{{.StartedStr}}</span>{{end}}
+      <span>{{.Duration}}</span>
+      <span>{{.TokensStr}} tokens</span>
+    </div>
+    {{if .Summary}}<div class="text-xs text-zinc-500 mt-1 truncate">{{.Summary}}</div>{{end}}
+  </div>
+  {{end}}
+  {{else}}
   <div class="p-5 text-center text-sm text-zinc-400">No session history yet</div>
+  {{end}}
 </div>
 
 <div class="flex items-center gap-2.5 p-3.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl mb-4">

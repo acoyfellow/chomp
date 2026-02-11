@@ -1,5 +1,11 @@
 {{define "content"}}
-<div class="max-w-[600px] mx-auto flex flex-col min-h-dvh">
+<!-- Boot overlay -->
+<div class="boot fixed inset-0 z-[200] bg-white dark:bg-zinc-950 flex flex-col items-center justify-center gap-5">
+  <div class="boot-mark text-[32px] font-bold tracking-tight">chomp<span class="text-gold">.</span></div>
+  <div class="boot-line w-12 h-0.5 bg-zinc-200 dark:bg-zinc-800 rounded-sm overflow-hidden"></div>
+</div>
+
+<div class="app-shell max-w-[600px] mx-auto flex flex-col min-h-dvh">
 
   <!-- Topbar -->
   <div class="flex items-center px-4 pt-3 pb-1 gap-2">

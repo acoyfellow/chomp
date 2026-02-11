@@ -1045,3 +1045,154 @@ func TestE2E_TaskProgressComputed(t *testing.T) {
 		t.Fatalf("active progress should cap at 95%%, got %d", p)
 	}
 }
+
+// ── Session tracking tests ──
+
+func TestE2E_SessionCreatedOnRun(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create a task
+	w := postJSON(apiAddTask, `{"prompt":"build it","dir":"/tmp"}`)
+	if w.Code != 200 {
+		t.Fatalf("add task: %d", w.Code)
+	}
+	var task Task
+	json.Unmarshal(w.Body.Bytes(), &task)
+
+	// Run the task
+	w = postJSON(apiRunTask, `{"id":"`+task.ID+`","agent":"shelley"}`)
+	if w.Code != 200 {
+		t.Fatalf("run task: %d %s", w.Code, w.Body.String())
+	}
+
+	// Read state and verify session was created
+	s, err := readState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Tasks) != 1 {
+		t.Fatal("expected 1 task")
+	}
+	if len(s.Tasks[0].Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(s.Tasks[0].Sessions))
+	}
+	sess := s.Tasks[0].Sessions[0]
+	if sess.ID != "s1" {
+		t.Fatalf("expected session id 's1', got %q", sess.ID)
+	}
+	if sess.Agent != "shelley" {
+		t.Fatalf("expected agent 'shelley', got %q", sess.Agent)
+	}
+	if sess.StartedAt == "" {
+		t.Fatal("session started_at should be set")
+	}
+	if sess.EndedAt != "" {
+		t.Fatal("session ended_at should be empty")
+	}
+}
+
+func TestE2E_SessionTokensUpdated(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create + run
+	w := postJSON(apiAddTask, `{"prompt":"build it"}`)
+	var task Task
+	json.Unmarshal(w.Body.Bytes(), &task)
+	postJSON(apiRunTask, `{"id":"`+task.ID+`","agent":"shelley"}`)
+
+	// Update tokens
+	w = postJSON(apiUpdateTask, `{"id":"`+task.ID+`","tokens":"42000"}`)
+	if w.Code != 200 {
+		t.Fatalf("update: %d", w.Code)
+	}
+
+	s, _ := readState()
+	if len(s.Tasks[0].Sessions) != 1 {
+		t.Fatal("expected 1 session")
+	}
+	if s.Tasks[0].Sessions[0].Tokens != 42000 {
+		t.Fatalf("expected session tokens 42000, got %d", s.Tasks[0].Sessions[0].Tokens)
+	}
+}
+
+func TestE2E_SessionClosedOnDone(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create + run
+	w := postJSON(apiAddTask, `{"prompt":"build it"}`)
+	var task Task
+	json.Unmarshal(w.Body.Bytes(), &task)
+	postJSON(apiRunTask, `{"id":"`+task.ID+`","agent":"shelley"}`)
+
+	// Complete
+	w = postJSON(apiDoneTask, `{"id":"`+task.ID+`","result":"shipped","tokens":"10000"}`)
+	if w.Code != 200 {
+		t.Fatalf("done: %d %s", w.Code, w.Body.String())
+	}
+
+	s, _ := readState()
+	sess := s.Tasks[0].Sessions[0]
+	if sess.Result != "done" {
+		t.Fatalf("expected result 'done', got %q", sess.Result)
+	}
+	if sess.EndedAt == "" {
+		t.Fatal("session ended_at should be set")
+	}
+	if sess.Summary != "shipped" {
+		t.Fatalf("expected summary 'shipped', got %q", sess.Summary)
+	}
+	if sess.Tokens != 10000 {
+		t.Fatalf("expected session tokens 10000, got %d", sess.Tokens)
+	}
+}
+
+func TestE2E_HandoffCreatesNewSession(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create + run
+	w := postJSON(apiAddTask, `{"prompt":"build it"}`)
+	var task Task
+	json.Unmarshal(w.Body.Bytes(), &task)
+	postJSON(apiRunTask, `{"id":"`+task.ID+`","agent":"shelley"}`)
+
+	// Handoff
+	w = postJSON(apiHandoffTask, `{"id":"`+task.ID+`","summary":"passing to next agent"}`)
+	if w.Code != 200 {
+		t.Fatalf("handoff: %d %s", w.Code, w.Body.String())
+	}
+
+	s, _ := readState()
+	if s.Tasks[0].Status != "queued" {
+		t.Fatalf("expected status 'queued' after handoff, got %q", s.Tasks[0].Status)
+	}
+	if len(s.Tasks[0].Sessions) != 1 {
+		t.Fatalf("expected 1 session after handoff, got %d", len(s.Tasks[0].Sessions))
+	}
+	sess := s.Tasks[0].Sessions[0]
+	if sess.Result != "handoff" {
+		t.Fatalf("expected result 'handoff', got %q", sess.Result)
+	}
+	if sess.EndedAt == "" {
+		t.Fatal("session ended_at should be set after handoff")
+	}
+	if sess.Summary != "passing to next agent" {
+		t.Fatalf("expected summary, got %q", sess.Summary)
+	}
+
+	// Now run again (new agent picks it up)
+	w = postJSON(apiRunTask, `{"id":"`+task.ID+`","agent":"opencode"}`)
+	if w.Code != 200 {
+		t.Fatalf("second run: %d %s", w.Code, w.Body.String())
+	}
+
+	s, _ = readState()
+	if len(s.Tasks[0].Sessions) != 2 {
+		t.Fatalf("expected 2 sessions after second run, got %d", len(s.Tasks[0].Sessions))
+	}
+	if s.Tasks[0].Sessions[1].ID != "s2" {
+		t.Fatalf("expected session id 's2', got %q", s.Tasks[0].Sessions[1].ID)
+	}
+	if s.Tasks[0].Sessions[1].Agent != "opencode" {
+		t.Fatalf("expected agent 'opencode', got %q", s.Tasks[0].Sessions[1].Agent)
+	}
+}
