@@ -1,89 +1,236 @@
 # Chomp Handoff — 2026-02-11
 
 ## What is chomp
+
 Task queue for AI agents. Feed tasks in, agents chew through them. Dashboard to watch. **The design spec is final** — don't redesign, just implement properly.
 
-## Stack (just rewritten)
+## Stack
+
 - **Go `html/template`** — server-rendered, embedded via `go:embed`
-- **HTMX** — declarative interactivity, auto-polling (balance 60s, tasks 3s)
+- **HTMX** — declarative interactivity, auto-polling, `HX-Trigger: refreshTasks` for instant UI updates
 - **Tailwind CSS** — standalone CLI (no Node), utility classes only
 - **Single binary** — templates + CSS embedded, Docker deploys to port 8000→8001
 
 ## Current state
-- ✅ 38 tests passing (`go test -count=1 -run . server_test.go server.go`)
-- ✅ Docker running on port 8000: `docker ps | grep chomp`
-- ✅ Balance card shows **$3.00/day** (daily renewable token budget, not bank account)
-- ✅ Settings drawer with API key CRUD (add/edit/delete, persisted to state/keys.json)
-- ✅ Custom agent support (BYO via POST /api/config/agents)
-- ✅ Task CRUD works with both JSON and form-encoded bodies (HTMX sends form-encoded)
-- ✅ All layout in document flow — zero `position:fixed/absolute` for layout elements
+
+- ✅ 59 tests passing (`go test -count=1 -run . server_test.go server.go`)
+- ✅ Docker running on port 8000
+- ✅ Platform status board (real — no fake dollars, no theater)
+- ✅ Settings drawer with API key CRUD + agent install/remove UI
+- ✅ 4-step create wizard (prompt → agent → model → review)
+- ✅ Session tracking with handoff chaining (activity timeline in detail sheet)
+- ✅ PS5-style boot screen (wordmark fade, gold bar fill, app reveal)
+- ✅ Agent/model git commit trailers via `chomp done`
+- ✅ Per-task budget flag (300k token soft cap)
+- ✅ All metrics real: LIVE (active tasks), TASKS (total), BURNED (sum of tokens)
+- ✅ All task mutations send `HX-Trigger: refreshTasks` — instant UI refresh
 
 ## Key files
+
 ```
-server.go              # ALL server code (~1200 lines) - API + template handlers
-server_test.go         # 38 tests covering every endpoint + partial + helper
+server.go              # ALL server code (~1500 lines) - API + template handlers
+server_test.go         # 59 tests
 templates/layout.html  # Base HTML (Sora font, HTMX, Tailwind)
-templates/page.html    # App shell (topbar, balance, tabs, content, sheets, JS)
+templates/page.html    # App shell (boot screen, topbar, tabs, sheets, JS)
 templates/partials/    # HTMX fragments: balance, tasks, detail, settings, create
-static/input.css       # Tailwind input
-static/style.css       # Tailwind output (regenerate: tailwindcss -i static/input.css -o static/style.css --minify)
-tailwind.config.js     # Sora font, custom colors, dark mode
-Dockerfile             # Multi-stage Go build, templates embedded at compile time
-state/                 # Runtime: state.json, keys.json, agents.json (Docker volume)
+static/input.css       # Tailwind input (includes boot keyframes)
+static/style.css       # Tailwind output
+bin/chomp              # CLI (bash + jq)
+adapters/              # Shell scripts: exedev.sh, opencode.sh
+Dockerfile             # Multi-stage Go build
+state/                 # Runtime: state.json, keys.json, agents.json
 ```
 
-## Build & deploy cycle
+## Data model
+
+```go
+type Session struct {
+    ID, Agent, Model, StartedAt, EndedAt, Result, Summary string
+    Tokens int
+}
+type Task struct {
+    ID, Prompt, Dir, Status, Created, Result, Platform, Model string
+    Tokens int; BudgetExceeded bool; Sessions []Session
+}
+```
+
+Statuses: `queued` → `active` → `done`/`failed`. Handoff: `active` → `queued` (closes session).
+
+## API endpoints
+
+| Method | Path | Purpose |
+|--------|------|--------|
+| GET | /partials/balance | Platform status card |
+| GET | /partials/tasks?tab=active\|completed | Task list |
+| GET | /partials/detail/{id} | Task detail + session timeline |
+| GET | /partials/settings | Settings + agent install |
+| GET | /partials/create?step=1-4 | Wizard steps |
+| GET | /api/platforms | Real platform statuses |
+| POST | /api/tasks | Create task |
+| POST | /api/tasks/run | Start task (creates session) |
+| POST | /api/tasks/update | Update tokens |
+| POST | /api/tasks/done | Complete (closes session) |
+| POST | /api/tasks/handoff | Close session, re-queue |
+| POST | /api/tasks/delete | Delete task |
+| POST | /api/config/agents | Add/delete custom agent |
+| POST | /api/config/keys | Set/delete API key |
+
+## Build & deploy
+
 ```bash
 cd /home/exedev/chomp
-tailwindcss -i static/input.css -o static/style.css --minify  # if templates changed
-go build -o chomp-server server.go                             # embeds templates+css
-go test -count=1 -run . server_test.go server.go               # must pass
+tailwindcss -i static/input.css -o static/style.css --minify
+go build -o chomp-server server.go
+go test -count=1 -run . server_test.go server.go
 docker stop chomp; docker rm chomp
 docker build -t chomp .
 docker run -d --name chomp --restart unless-stopped -p 8000:8001 -v /home/exedev/chomp/state:/app/state chomp
+docker image prune -f
 ```
 
-## API endpoints
-| Method | Path | Purpose |
-|--------|------|--------|
-| GET | / | Main page (server-rendered) |
-| GET | /static/style.css | Embedded Tailwind CSS |
-| GET | /partials/balance | Balance card fragment (HTMX) |
-| GET | /partials/tasks?tab=active\|completed | Task list fragment (HTMX) |
-| GET | /partials/detail/{id} | Task detail fragment (HTMX) |
-| GET | /partials/settings | Settings fragment (HTMX) |
-| GET | /partials/create | Create task form (HTMX) |
-| GET | /api/state | Raw JSON state |
-| GET | /api/config | Config (agents + routers) |
-| GET | /api/config/agents | Merged agent list |
-| POST | /api/config/agents | Add custom agent |
-| DELETE | /api/config/agents | Remove custom agent |
-| POST | /api/config/keys | Set/delete API key |
-| GET | /api/balance | Daily token budget |
-| POST | /api/tasks | Create task |
-| POST | /api/tasks/run | Start task |
-| POST | /api/tasks/done | Complete task |
-| POST | /api/tasks/delete | Delete task |
+---
 
-## What to work on next
-1. ~~**Delete waiting tasks doesn't refresh UI**~~ ✅ Fixed.
-2. ~~**Old `dashboard/` directory**~~ ✅ Deleted.
-3. ~~**Settings: agent install/BYO UI**~~ ✅ Added.
-4. ~~**Create task wizard**~~ ✅ 4-step HTMX wizard.
-5. ~~**Session tracking**~~ ✅ Session struct, activity timeline, handoff chaining.
-6. ~~**Boot screen**~~ ✅ PS5-style wordmark + gold bar animation.
-7. ~~**Agent/model stamping**~~ ✅ Git commit trailers via `chomp done`.
-8. ~~**Token budget enforcement**~~ ✅ Daily gate (429) + per-task flag (300k).
-9. **Dashboard dispatch** — wire ▶ button to actually exec adapter scripts from Go server.
-10. **Gateproof integration** — tasks with gate files, verification loops.
-11. **Pi adapter** — third agent platform.
+## NEXT: Cloudflare Sandbox Dispatch
 
-## Critical rules
-- **Run tests before committing**: `go test -count=1 -run . server_test.go server.go`
-- **Regenerate CSS if templates change**: `tailwindcss -i static/input.css -o static/style.css --minify`
-- **Rebuild Go binary after CSS regen** (CSS is embedded via go:embed)
-- **No `position:fixed/absolute` for layout** — everything in document flow
-- **No `confirm()` dialogs** — they kill the headless browser
-- **Balance is daily renewable**, not cumulative. Show "/day" always.
-- **HTMX sends form-encoded** with `hx-vals` — `decodeBody()` helper handles both JSON and form
-- Read AGENTS.md for full project context
+**This is the priority. Full Cloudflare account access confirmed.**
+
+### What we're building
+
+Tap ▶ on a task → Cloudflare Sandbox spins up → AI agent runs inside → live terminal in dashboard → agent calls chomp API when done.
+
+### Architecture
+
+```
+Dashboard (Go, exe.dev :8000)       Cloudflare Edge
+┌──────────────────────┐    ┌──────────────────────────────────┐
+│ Go server            │    │ Worker (TypeScript)              │
+│  POST /api/tasks/run │───>│  /dispatch → getSandbox()        │
+│                      │    │  /ws/terminal → sandbox.terminal()│
+│ templates/page.html  │    │  /status → sandbox.exec() ping   │
+│  └─ xterm.js widget  │<──>│  WebSocket proxy                 │
+│                      │    │                                  │
+│ state.json           │    │ Sandbox (Ubuntu container)        │
+│                      │    │  ├─ agent (shelley/pi/opencode)  │
+│                      │    │  ├─ git repo (cloned)            │
+│                      │    │  ├─ chomp CLI (calls back)       │
+│                      │    │  └─ keepAlive: true              │
+└──────────────────────┘    └──────────────────────────────────┘
+```
+
+### Sandbox SDK key facts
+
+- **Container:** Isolated Ubuntu, full Linux env (Node, Bun, git, curl built-in)
+- **Base images:** `cloudflare/sandbox:0.7.0` (default), `-python`, `-opencode`
+- **Custom Dockerfile:** Extend base, install pi/shelley/anything
+- **`exec(cmd)`:** Run commands, stream output, set env/cwd/timeout
+- **`terminal(request)`:** WebSocket → xterm.js live terminal in browser
+- **`gitCheckout(url)`:** Clone repos, supports private (token in URL), branches, shallow
+- **`keepAlive: true`:** Auto-heartbeat every 30s, container stays up
+- **`startProcess(cmd)`:** Background processes
+- **`destroy()`:** Kill container immediately
+- **Sleeps after 10min idle** — all state lost. Use R2 for persistence.
+- **Workers Paid required.** WebSocket transport avoids subrequest limits.
+
+### Implementation phases
+
+**Phase 1: Worker scaffold (`chomp-sandbox/`)**
+- New Worker project with Sandbox binding
+- Custom Dockerfile: base image + `pi` + `chomp` CLI
+- Endpoints: `/dispatch`, `/ws/terminal/:id`, `/status/:id`, `/kill/:id`
+- Deploy to Cloudflare
+
+**Phase 2: Go server integration**
+- `apiRunTask` → POST to Worker `/dispatch` with task details
+- Store `sandbox_id` on Task/Session
+- Agent in sandbox calls back: `curl $CHOMP_API/api/tasks/update`
+
+**Phase 3: Live terminal**
+- xterm.js in detail sheet (CDN: xterm.js + `@cloudflare/sandbox/addon`)
+- WebSocket to Worker `/ws/terminal/:sandboxId`
+- Show when task is active, hide when done
+
+**Phase 4: Gate verification loop**
+- After agent says "done", sandbox runs `gates/health.sh`
+- Pass → `chomp done`. Fail → inject output, agent loops (new session)
+- Max N loops before marking failed
+
+**Phase 5: Pi adapter**
+- `pi` installed in Dockerfile (`npm i -g @mariozechner/pi-coding-agent`)
+- CLI: `pi --message "prompt" --dir /workspace/repo`
+- Same dispatch protocol as other agents
+
+### Sandbox dispatch pseudocode
+
+```typescript
+import { getSandbox, type Sandbox } from '@cloudflare/sandbox';
+export { Sandbox } from '@cloudflare/sandbox';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/dispatch' && request.method === 'POST') {
+      const { taskId, prompt, agent, model, repoUrl, dir } = await request.json();
+      const sandbox = getSandbox(env.Sandbox, `task-${taskId}`, { keepAlive: true });
+
+      if (repoUrl) {
+        await sandbox.gitCheckout(repoUrl, { depth: 1, targetDir: '/workspace/repo' });
+      }
+
+      // Start agent in background
+      await sandbox.startProcess(
+        `CHOMP_API=${env.CHOMP_API} TASK_ID=${taskId} run-agent ${agent} ${model} "${prompt}"`,
+      );
+
+      return Response.json({ sandboxId: `task-${taskId}`, status: 'started' });
+    }
+
+    if (url.pathname.startsWith('/ws/terminal/')) {
+      const sandboxId = url.pathname.split('/').pop();
+      const sandbox = getSandbox(env.Sandbox, sandboxId!);
+      return sandbox.terminal(request, { cols: 120, rows: 30 });
+    }
+
+    if (url.pathname.startsWith('/kill/')) {
+      const sandboxId = url.pathname.split('/').pop();
+      const sandbox = getSandbox(env.Sandbox, sandboxId!);
+      await sandbox.destroy();
+      return Response.json({ status: 'destroyed' });
+    }
+
+    return new Response('not found', { status: 404 });
+  }
+};
+```
+
+### Wrangler config
+
+```jsonc
+{
+  "name": "chomp-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "containers": [{ "class_name": "Sandbox", "image": "./Dockerfile", "max_instances": 5 }],
+  "durable_objects": { "bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }] },
+  "vars": { "SANDBOX_TRANSPORT": "websocket", "CHOMP_API": "https://jordan.exe.xyz:8000" },
+  "migrations": [{ "tag": "v1", "new_classes": ["Sandbox"] }]
+}
+```
+
+### Dockerfile
+
+```dockerfile
+FROM docker.io/cloudflare/sandbox:0.7.0
+RUN npm install -g @mariozechner/pi-coding-agent
+COPY bin/chomp /usr/local/bin/chomp
+COPY bin/run-agent /usr/local/bin/run-agent
+RUN chmod +x /usr/local/bin/chomp /usr/local/bin/run-agent
+```
+
+### Critical rules
+
+- **No theater.** Every number shown must come from real data.
+- **Run tests before committing.** Small commits after each meaningful change.
+- **Disk is tight (~19GB).** Clean Docker images, go cache, node_modules regularly.
+- **No `confirm()` dialogs.** No `position:fixed/absolute` for layout.
+- Read AGENTS.md for full project context.
