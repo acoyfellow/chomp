@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# chomp - sandbox-side CLI that calls back to the chomp API
+set -euo pipefail
+
+CHOMP_API="${CHOMP_API:?CHOMP_API env required}"
+TASK_ID="${TASK_ID:?TASK_ID env required}"
+
+case "${1:-help}" in
+  update)
+    # Update token count: chomp update <tokens>
+    curl -sf -X POST "$CHOMP_API/api/tasks/update" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -d "id=$TASK_ID&tokens=${2:?tokens required}" || true
+    ;;
+  done)
+    # Mark task done: chomp done ["summary"]
+    curl -sf -X POST "$CHOMP_API/api/tasks/done" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -d "id=$TASK_ID&result=done&summary=${2:-}&agent=${AGENT:-}&model=${MODEL:-}" || true
+    ;;
+  handoff)
+    # Handoff with context: chomp handoff "context"
+    curl -sf -X POST "$CHOMP_API/api/tasks/handoff" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -d "id=$TASK_ID&context=${2:?context required}" || true
+    ;;
+  fail)
+    # Mark task failed: chomp fail ["reason"]
+    curl -sf -X POST "$CHOMP_API/api/tasks/done" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -d "id=$TASK_ID&result=failed&summary=${2:-}" || true
+    ;;
+  *)
+    echo "chomp sandbox CLI"
+    echo "  chomp update <tokens>    Report token usage"
+    echo "  chomp done [summary]     Mark task complete"
+    echo "  chomp handoff context    Re-queue with context"
+    echo "  chomp fail [reason]      Mark task failed"
+    ;;
+esac

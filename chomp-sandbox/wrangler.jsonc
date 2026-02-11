@@ -1,0 +1,30 @@
+{
+  "name": "chomp-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-13",
+  "vars": {
+    "SANDBOX_TRANSPORT": "websocket",
+    "CHOMP_API": "https://jordan.exe.xyz:8000"
+  },
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "max_instances": 5
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "Sandbox",
+        "name": "Sandbox"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["Sandbox"],
+      "tag": "v1"
+    }
+  ]
+}

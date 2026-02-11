@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# run-agent - dispatch to the right AI agent CLI
+# Usage: run-agent <agent> <model> <prompt>
+# Env: CHOMP_API, TASK_ID, REPO_DIR (optional)
+set -euo pipefail
+
+AGENT="${1:?agent required}"
+MODEL="${2:?model required}"
+PROMPT="${3:?prompt required}"
+WORKDIR="${REPO_DIR:-/workspace}"
+
+export AGENT MODEL
+
+echo "[chomp] Starting agent=$AGENT model=$MODEL"
+echo "[chomp] Working dir=$WORKDIR"
+echo "[chomp] Prompt: $PROMPT"
+echo "---"
+
+case "$AGENT" in
+  pi)
+    cd "$WORKDIR"
+    pi --message "$PROMPT" --dir "$WORKDIR" 2>&1
+    EXIT=$?
+    ;;
+  opencode)
+    cd "$WORKDIR"
+    opencode run --message "$PROMPT" 2>&1
+    EXIT=$?
+    ;;
+  shelley)
+    # Shelley uses the exe.dev worker loop protocol
+    echo "[chomp] Shelley adapter not yet available in sandbox"
+    EXIT=1
+    ;;
+  *)
+    echo "[chomp] Unknown agent: $AGENT"
+    EXIT=1
+    ;;
+esac
+
+if [ "$EXIT" -eq 0 ]; then
+  echo "---"
+  echo "[chomp] Agent finished successfully"
+  chomp done "Agent $AGENT completed task"
+else
+  echo "---"
+  echo "[chomp] Agent exited with code $EXIT"
+  chomp fail "Agent $AGENT failed with exit code $EXIT"
+fi
