@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -31,6 +32,7 @@ var (
 	cacheMu   sync.RWMutex
 	cached    *State
 	cachedAt  time.Time
+	stateMu   sync.Mutex
 )
 
 func readState() (*State, error) {
@@ -65,6 +67,36 @@ func readState() (*State, error) {
 	return &s, nil
 }
 
+func readStateUnsafe() (*State, error) {
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &State{Tasks: []Task{}, NextID: 1}, nil
+		}
+		return nil, err
+	}
+	var s State
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	if s.Tasks == nil {
+		s.Tasks = []Task{}
+	}
+	return &s, nil
+}
+
+func writeState(s *State) error {
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := stateFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, stateFile)
+}
+
 func apiState(w http.ResponseWriter, r *http.Request) {
 	s, err := readState()
 	if err != nil {
@@ -73,6 +105,157 @@ func apiState(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s)
+}
+
+func apiAddTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var body struct {
+		Prompt string `json:"prompt"`
+		Dir    string `json:"dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Prompt == "" {
+		http.Error(w, "need prompt", 400)
+		return
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := readStateUnsafe()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	id := s.NextID
+	task := Task{
+		ID:      fmt.Sprintf("%d", id),
+		Prompt:  body.Prompt,
+		Dir:     body.Dir,
+		Status:  "queued",
+		Created: time.Now().UTC().Format(time.RFC3339),
+	}
+	s.Tasks = append(s.Tasks, task)
+	s.NextID = id + 1
+
+	if err := writeState(s); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	// Invalidate cache
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
+func apiRunTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var body struct {
+		ID       string `json:"id"`
+		Agent    string `json:"agent"`
+		Router   string `json:"router"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "need id", 400)
+		return
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := readStateUnsafe()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	found := false
+	for i := range s.Tasks {
+		if s.Tasks[i].ID == body.ID && s.Tasks[i].Status == "queued" {
+			s.Tasks[i].Status = "active"
+			if body.Agent != "" {
+				s.Tasks[i].Platform = body.Agent
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "task not found or not queued", 404)
+		return
+	}
+
+	if err := writeState(s); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func apiDoneTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var body struct {
+		ID     string `json:"id"`
+		Result string `json:"result"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "need id", 400)
+		return
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := readStateUnsafe()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	found := false
+	for i := range s.Tasks {
+		if s.Tasks[i].ID == body.ID {
+			s.Tasks[i].Status = "done"
+			s.Tasks[i].Result = body.Result
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "task not found", 404)
+		return
+	}
+
+	if err := writeState(s); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func main() {
@@ -98,6 +281,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", apiState)
+	mux.HandleFunc("/api/tasks", apiAddTask)
+	mux.HandleFunc("/api/tasks/run", apiRunTask)
+	mux.HandleFunc("/api/tasks/done", apiDoneTask)
 	mux.Handle("/", http.FileServer(http.Dir(dashDir)))
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)

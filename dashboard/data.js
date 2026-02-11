@@ -1,8 +1,11 @@
 // Agent and router definitions (config, not data)
 const AGENTS = {
-  shelley:  { name: 'Shelley',  color: '#C8A630', darkColor: '#E8C872', icon: 'S' },
-  opencode: { name: 'OpenCode', color: '#4F6EC5', darkColor: '#7B93DB', icon: 'O' },
-  pi:       { name: 'Pi',       color: '#9B4FBF', darkColor: '#C97BDB', icon: 'P' },
+  shelley:  { name: 'Shelley',  color: '#C8A630', darkColor: '#E8C872', icon: 'S',
+    models: ['claude-sonnet-4', 'claude-opus-4'] },
+  opencode: { name: 'OpenCode', color: '#4F6EC5', darkColor: '#7B93DB', icon: 'O',
+    models: ['claude-sonnet-4', 'claude-opus-4', 'gpt-4.1', 'gemini-2.5-pro', 'o3', 'o4-mini'] },
+  pi:       { name: 'Pi',       color: '#9B4FBF', darkColor: '#C97BDB', icon: 'P',
+    models: ['claude-sonnet-4', 'claude-opus-4', 'gpt-4.1', 'gemini-2.5-pro'] },
 };
 
 const ROUTERS = {

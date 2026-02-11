@@ -26,11 +26,7 @@ function renderContent() {
 
 function renderLoops(el) {
   if (!LOOPS.length) {
-    el.innerHTML = `<div class="empty">
-      <div class="empty-icon">\u25ce</div>
-      <div class="empty-text">No active loops</div>
-      <div class="empty-sub">Add a task and dispatch it to get started</div>
-    </div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">\u25ce</div><div class="empty-text">No active loops</div><div class="empty-sub">Tap + to create and start a task</div></div>`;
     return;
   }
   el.innerHTML = LOOPS.map(loop => {
@@ -38,57 +34,32 @@ function renderLoops(el) {
     const gp = loop.gates.filter(g => g.status === 'pass').length;
     const pct = gt ? Math.round(gp/gt*100) : 0;
     const offset = circ - (circ * pct / 100);
-    const agents = [...new Set(loop.sessions.map(s => s.agent).filter(Boolean))];
     const hasGates = gt > 0;
     const color = 'var(--green)';
-
     return `
     <div class="card" onclick="openSheet('${loop.id}')">
       <div class="card-top">
         <div class="card-title">${loop.prompt}</div>
         <div class="badge badge-running">active</div>
       </div>
-      ${agents.length ? `<div class="card-agents">${agents.map(a => `<div class="agent-chip"><div class="agent-dot" style="background:${AGENTS[a]?.color||'#999'}"></div>${AGENTS[a]?.name||a}</div>`).join('')}</div>` : ''}
       ${loop.platform ? `<div class="card-agents"><div class="agent-chip">${loop.platform}</div></div>` : ''}
       ${hasGates ? `
       <div class="card-progress">
-        <div class="progress-ring">
-          <svg width="40" height="40" viewBox="0 0 40 40">
-            <circle class="progress-ring-bg" cx="20" cy="20" r="18"/>
-            <circle class="progress-ring-fill" cx="20" cy="20" r="18" stroke="${color}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/>
-          </svg>
-          <div class="progress-ring-text">${gp}/${gt}</div>
-        </div>
-        <div class="progress-info">
-          <div class="progress-label">${gp} of ${gt} gates passing</div>
-          <div class="progress-sub">${fmt(loop.totalTokens)} tokens</div>
-        </div>
-      </div>` : `
-      <div class="card-meta-row">
-        <span class="card-meta">${fmt(loop.totalTokens)} tokens burned</span>
-      </div>`}
-      ${loop.sessions.length ? `<div class="card-sessions">
-        ${loop.sessions.map(s => `<div class="ses-pip s-${s.outcome === 'active' ? 'active' : s.outcome}"></div>`).join('')}
-        <span class="ses-count">${loop.sessions.length} sessions</span>
-      </div>` : ''}
-      <div class="level-bar">
-        <div class="level-track"><div class="level-fill lv-green" style="width:${hasGates ? pct : 50}%"></div></div>
-      </div>
+        <div class="progress-ring"><svg width="40" height="40" viewBox="0 0 40 40"><circle class="progress-ring-bg" cx="20" cy="20" r="18"/><circle class="progress-ring-fill" cx="20" cy="20" r="18" stroke="${color}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/></svg><div class="progress-ring-text">${gp}/${gt}</div></div>
+        <div class="progress-info"><div class="progress-label">${gp} of ${gt} gates passing</div><div class="progress-sub">${fmt(loop.totalTokens)} tokens</div></div>
+      </div>` : `<div class="card-meta-row"><span class="card-meta">${fmt(loop.totalTokens)} tokens burned</span></div>`}
+      <div class="level-bar"><div class="level-track"><div class="level-fill lv-green" style="width:${hasGates ? pct : 50}%"></div></div></div>
     </div>`;
   }).join('');
 }
 
 function renderQueue(el) {
   if (!QUEUE.length) {
-    el.innerHTML = `<div class="empty">
-      <div class="empty-icon">\u2191</div>
-      <div class="empty-text">Queue empty</div>
-      <div class="empty-sub">chomp add "your task here"</div>
-    </div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">\u2191</div><div class="empty-text">Queue empty</div><div class="empty-sub">Tap + to add a task</div></div>`;
     return;
   }
   el.innerHTML = QUEUE.map(t => `
-    <div class="q-card" onclick="openPicker('dispatch','${t.id}')">
+    <div class="q-card" onclick="openCreate('${t.id}')">
       <div class="q-num">#${t.id}</div>
       <div class="q-prompt">${t.prompt}</div>
     </div>`).join('');
@@ -96,29 +67,19 @@ function renderQueue(el) {
 
 function renderDone(el) {
   if (!DONE.length) {
-    el.innerHTML = `<div class="empty">
-      <div class="empty-icon">\u2713</div>
-      <div class="empty-text">Nothing completed yet</div>
-      <div class="empty-sub">Completed tasks appear here</div>
-    </div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">\u2713</div><div class="empty-text">Nothing completed yet</div><div class="empty-sub">Completed tasks appear here</div></div>`;
     return;
   }
   el.innerHTML = DONE.map(t => {
     const dots = (t.agents||[]).map(a => `<div class="agent-dot" style="background:${AGENTS[a]?.color||'#999'};width:6px;height:6px;border-radius:50%"></div>`).join('');
-    return `
-    <div class="d-card">
+    return `<div class="d-card">
       <div class="d-prompt"><span class="d-check">${t.status === 'failed' ? '\u2717' : '\u2713'}</span>${t.prompt}</div>
-      <div class="d-meta">
-        ${dots ? `<div class="d-agents-row">${dots}</div>` : ''}
-        ${t.platform ? `<span>${t.platform}</span>` : ''}
-        <span>${fmt(t.tokens)} burned</span>
-        ${t.result ? `<span>${t.result.substring(0,40)}</span>` : ''}
-      </div>
+      <div class="d-meta">${dots ? `<div class="d-agents-row">${dots}</div>` : ''}${t.platform ? `<span>${t.platform}</span>` : ''}<span>${fmt(t.tokens)} burned</span></div>
     </div>`;
   }).join('');
 }
 
-// ── Sheet (detail) ──
+// ── Detail sheet ──
 function openSheet(id) {
   selectedLoop = LOOPS.find(l => l.id === id);
   if (!selectedLoop) return;
@@ -131,103 +92,123 @@ function closeSheet() {
   document.getElementById('sheet').classList.remove('open');
   selectedLoop = null;
 }
-
 function renderSheet() {
   const l = selectedLoop;
   if (!l) return;
-  const gp = l.gates.filter(g => g.status === 'pass').length;
-  const hasGates = l.gates.length > 0;
-  const hasSessions = l.sessions.length > 0;
-
   document.getElementById('sheet-body').innerHTML = `
     <div class="badge badge-running" style="display:inline-block;margin-bottom:10px">active</div>
     <div class="sh-title">${l.prompt}</div>
     ${l.dir ? `<div class="sh-dir">${l.dir}</div>` : ''}
     ${l.platform ? `<div class="sh-dir">Platform: ${l.platform}</div>` : ''}
-
-    <div class="sh-section">
-      <div class="sh-label">Tokens</div>
-      <div class="tok-labels"><span>${fmt(l.totalTokens)} burned</span></div>
-    </div>
-
-    ${hasGates ? `<div class="sh-section">
-      <div class="sh-label">Gates \u2014 ${gp} of ${l.gates.length}</div>
-      ${l.gates.map(g => {
-        const cls = g.status === 'pass' ? 'gp' : g.status === 'fail' ? 'gf' : 'gpn';
-        return `<div class="gate-row">
-          <div class="gate-dot ${cls}"></div>
-          <div class="gate-name">${g.name}</div>
-          <div class="gate-st ${cls}">${g.status}</div>
-        </div>`;
-      }).join('')}
-    </div>` : ''}
-
-    ${hasSessions ? `<div class="sh-section">
-      <div class="sh-label">Sessions</div>
-      ${l.sessions.map(s => {
-        const ag = AGENTS[s.agent]; const rt = ROUTERS[s.router];
-        const dotCls = s.outcome === 'active' ? 's-active' : 's-'+s.outcome;
-        return `<div class="sh-ses">
-          <div class="sh-ses-top">
-            <div class="sh-ses-dot ses-pip ${dotCls}"></div>
-            <div class="sh-ses-num">#${s.id}</div>
-            <div class="sh-ses-sum">${s.summary}</div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>` : ''}
-
-    <div class="sh-actions">
-      <button class="btn btn-secondary" onclick="closeSheet()">Close</button>
-    </div>`;
+    <div class="sh-section"><div class="sh-label">Tokens</div><div class="tok-labels"><span>${fmt(l.totalTokens)} burned</span></div></div>
+    <div class="sh-actions"><button class="btn btn-secondary" onclick="closeSheet()">Close</button></div>`;
 }
 
-// ── Picker (agent + router) ──
-let pickerMode = null, pickerTarget = null, pickedAgent = null, pickedRouter = null;
+// ── Create flow (stepped: task → agent → gateway → model → start) ──
+let cStep = 0, cPrompt = '', cDir = '', cAgent = null, cRouter = null, cModel = null, cExistingId = null;
 
-function openPicker(mode, targetId) {
-  pickerMode = mode; pickerTarget = targetId;
-  pickedAgent = null; pickedRouter = null;
-  renderPicker();
-  document.getElementById('picker-bg').classList.add('open');
-  document.getElementById('picker').classList.add('open');
+function openCreate(existingId) {
+  cStep = existingId ? 1 : 0;
+  cPrompt = ''; cDir = ''; cAgent = null; cRouter = null; cModel = null;
+  cExistingId = existingId || null;
+  renderCreate();
+  document.getElementById('create-bg').classList.add('open');
+  document.getElementById('create-sheet').classList.add('open');
+  if (!existingId) setTimeout(() => { const el = document.getElementById('c-prompt'); if(el) el.focus(); }, 350);
 }
-function closePicker() {
-  document.getElementById('picker-bg').classList.remove('open');
-  document.getElementById('picker').classList.remove('open');
+function closeCreate() {
+  document.getElementById('create-bg').classList.remove('open');
+  document.getElementById('create-sheet').classList.remove('open');
+}
+function openAdd() { openCreate(); }
+
+function renderCreate() {
+  const body = document.getElementById('create-body');
+  const labels = ['Task', 'Agent', 'Gateway', 'Model'];
+  const dots = labels.map((s,i) => `<span class="step-dot ${i < cStep ? 'done' : ''} ${i === cStep ? 'current' : ''}">${i < cStep ? '\u2713' : i+1}</span>`).join('');
+  const bar = `<div class="step-bar">${dots}</div>`;
+
+  if (cStep === 0) {
+    body.innerHTML = `
+      <div class="sh-title">What needs doing?</div>${bar}
+      <div class="add-form">
+        <textarea id="c-prompt" class="add-input" rows="3" placeholder="Refactor the auth module..." oninput="cPrompt=this.value">${cPrompt}</textarea>
+        <label class="add-label">Directory (optional)</label>
+        <input class="add-input" type="text" placeholder="/home/exedev/myproject" value="${cDir}" oninput="cDir=this.value">
+        <button class="btn btn-primary add-btn" onclick="cNextStep()">Next</button>
+      </div>`;
+  } else if (cStep === 1) {
+    body.innerHTML = `
+      <div class="sh-title">Pick an agent</div>${bar}
+      <div class="pick-agents">
+        ${Object.entries(AGENTS).map(([id,a]) => `
+          <div class="pick-agent ${cAgent===id?'picked':''}" onclick="cAgent='${id}';renderCreate()">
+            <div class="pick-agent-dot" style="background:${a.color}"></div>
+            <div class="pick-agent-name">${a.name}</div>
+          </div>`).join('')}
+      </div>
+      <div class="step-nav">
+        ${!cExistingId ? '<button class="btn btn-secondary" onclick="cPrevStep()">Back</button>' : ''}
+        <button class="btn btn-primary" style="flex:1" onclick="cNextStep()" ${!cAgent?'disabled':''}>Next</button>
+      </div>`;
+  } else if (cStep === 2) {
+    body.innerHTML = `
+      <div class="sh-title">Pick a gateway</div>${bar}
+      <div class="pick-routers">
+        ${Object.entries(ROUTERS).map(([id,r]) => `
+          <div class="pick-router ${cRouter===id?'picked':''}" onclick="cRouter='${id}';renderCreate()" style="${cRouter===id?'color:'+r.color:''}">
+            ${r.short}
+          </div>`).join('')}
+      </div>
+      <div class="step-nav">
+        <button class="btn btn-secondary" onclick="cPrevStep()">Back</button>
+        <button class="btn btn-primary" style="flex:1" onclick="cNextStep()" ${!cRouter?'disabled':''}>Next</button>
+      </div>`;
+  } else if (cStep === 3) {
+    const models = AGENTS[cAgent]?.models || [];
+    body.innerHTML = `
+      <div class="sh-title">Pick a model</div>${bar}
+      <div class="model-list">
+        ${models.map(m => `
+          <div class="model-opt ${cModel===m?'picked':''}" onclick="cModel='${m}';renderCreate()">
+            <span class="model-name">${m}</span>
+            ${cModel===m ? '<span class="model-check">\u2713</span>' : ''}
+          </div>`).join('')}
+      </div>
+      <div class="step-nav">
+        <button class="btn btn-secondary" onclick="cPrevStep()">Back</button>
+        <button class="btn btn-primary" style="flex:1" onclick="cSubmit()" ${!cModel?'disabled':''}>Start</button>
+      </div>`;
+  }
 }
 
-function renderPicker() {
-  const title = pickerMode === 'dispatch' ? `Dispatch #${pickerTarget}` : 'Swap agent';
-  document.getElementById('picker-body').innerHTML = `
-    <div class="pick-title">${title}</div>
-    <div class="pick-sub">Choose agent and router</div>
-
-    <div class="pick-label">Agent</div>
-    <div class="pick-agents">
-      ${Object.entries(AGENTS).map(([id,a]) => `
-        <div class="pick-agent ${pickedAgent===id?'picked':''}" onclick="pickAgent('${id}')">
-          <div class="pick-agent-dot" style="background:${a.color}"></div>
-          <div class="pick-agent-name">${a.name}</div>
-        </div>`).join('')}
-    </div>
-
-    <div class="pick-label">Router</div>
-    <div class="pick-routers">
-      ${Object.entries(ROUTERS).map(([id,r]) => `
-        <div class="pick-router ${pickedRouter===id?'picked':''}" onclick="pickRouter('${id}')" style="${pickedRouter===id?'color:'+r.color:''}">
-          ${r.short}
-        </div>`).join('')}
-    </div>
-
-    <button class="btn btn-primary" style="width:100%" onclick="confirmPick()">${pickerMode==='dispatch'?'Dispatch':'Swap & Go'}</button>`;
+function cNextStep() {
+  if (cStep === 0 && !cPrompt.trim()) return;
+  if (cStep === 1 && !cAgent) return;
+  if (cStep === 2 && !cRouter) return;
+  cStep++;
+  if (cStep === 3) cModel = null;
+  renderCreate();
 }
+function cPrevStep() { cStep = Math.max(0, cStep - 1); renderCreate(); }
 
-function pickAgent(id) { pickedAgent = id; renderPicker(); }
-function pickRouter(id) { pickedRouter = id; renderPicker(); }
-function confirmPick() {
-  if (!pickedAgent || !pickedRouter) return;
-  closePicker();
+async function cSubmit() {
+  if (!cAgent || !cRouter || !cModel) return;
+  let taskId = cExistingId;
+  if (!taskId) {
+    try {
+      const res = await fetch('/api/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prompt:cPrompt.trim(), dir:cDir.trim()||undefined}) });
+      const task = await res.json();
+      taskId = task.id;
+    } catch(e) { alert('Failed to create task'); return; }
+  }
+  try {
+    await fetch('/api/tasks/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:taskId, agent:cAgent, router:cRouter}) });
+    closeCreate();
+    currentTab = 'active';
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+    await refresh();
+  } catch(e) { alert('Failed to start task'); }
 }
 
 // ── Tabs ──
@@ -238,30 +219,19 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   renderContent();
 }));
 
-function addTask() {
-  const p = prompt('Task:'); if(p) alert('chomp add "'+p+'"');
-}
-
 // ── Theme ──
 function toggleTheme() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
   localStorage.setItem('theme', isDark ? 'light' : 'dark');
 }
-(function(){
-  const saved = localStorage.getItem('theme');
-  if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-})();
+(function(){ const s = localStorage.getItem('theme'); if (s === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); })();
 
 // ── Unlock flash ──
 function showUnlock(taskName) {
   const div = document.createElement('div');
   div.className = 'unlock-flash';
-  div.innerHTML = `<div class="unlock-content">
-    <div class="unlock-ring">\u2713</div>
-    <div class="unlock-title">${taskName}</div>
-    <div class="unlock-sub">All gates passed</div>
-  </div>`;
+  div.innerHTML = `<div class="unlock-content"><div class="unlock-ring">\u2713</div><div class="unlock-title">${taskName}</div><div class="unlock-sub">All gates passed</div></div>`;
   document.body.appendChild(div);
   setTimeout(() => div.remove(), 3600);
 }
@@ -271,11 +241,6 @@ async function refresh() {
   await fetchState();
   renderSummary();
   renderContent();
-  if (selectedLoop) {
-    selectedLoop = LOOPS.find(l => l.id === selectedLoop.id) || null;
-    if (selectedLoop) renderSheet();
-  }
 }
-
 refresh();
 setInterval(refresh, 3000);

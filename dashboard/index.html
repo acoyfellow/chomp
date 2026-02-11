@@ -23,6 +23,7 @@
   <!-- Summary strip -->
   <div class="summary" id="summary"></div>
   <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+  <!-- old + task button removed, FAB handles it -->
 
   <!-- Tab bar (top) -->
   <div class="tabs">
@@ -34,6 +35,9 @@
   <!-- Scrollable content -->
   <div class="content" id="content"></div>
 
+  <!-- FAB -->
+  <button class="fab" onclick="openAdd()" aria-label="Add task">+</button>
+
 </div>
 
 <!-- Detail sheet -->
@@ -43,11 +47,13 @@
   <div class="sheet-body" id="sheet-body"></div>
 </div>
 
-<!-- Agent picker -->
-<div id="picker-bg" class="sheet-bg" onclick="closePicker()"></div>
-<div id="picker" class="sheet picker-sheet">
+
+
+<!-- Unified create + dispatch sheet -->
+<div id="create-bg" class="sheet-bg" onclick="closeCreate()"></div>
+<div id="create-sheet" class="sheet">
   <div class="sheet-handle"></div>
-  <div class="picker-body" id="picker-body"></div>
+  <div class="sheet-body" id="create-body"></div>
 </div>
 
 <script src="data.js"></script>

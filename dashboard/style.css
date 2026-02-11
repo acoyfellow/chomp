@@ -218,6 +218,39 @@ body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:15px
 @keyframes unlockPop{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
 @keyframes unlockSeq{0%,75%{opacity:1}100%{opacity:0;pointer-events:none}}
 
+/* ── Step indicator ── */
+.step-bar{display:flex;gap:8px;justify-content:center;margin:16px 0 20px}
+.step-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:var(--bg2);color:var(--t3);border:2px solid var(--border);transition:all .25s var(--ease)}
+.step-dot.current{border-color:var(--gold);color:var(--gold);background:var(--bg)}
+.step-dot.done{border-color:var(--green);background:var(--green);color:#fff}
+
+/* ── Step nav ── */
+.step-nav{display:flex;gap:8px;margin-top:20px}
+
+/* ── Model list ── */
+.model-list{display:flex;flex-direction:column;gap:4px}
+.model-opt{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--bg2);border:2px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s var(--ease);-webkit-tap-highlight-color:transparent}
+.model-opt:active{transform:scale(.98)}
+.model-opt.picked{border-color:var(--gold)}
+.model-name{font-size:14px;font-weight:500}
+.model-check{color:var(--green);font-weight:700;font-size:16px}
+
+/* ── FAB ── */
+.fab{position:fixed;bottom:24px;right:24px;z-index:40;width:56px;height:56px;border-radius:50%;border:none;background:var(--t1);color:var(--bg);font-size:28px;font-weight:300;cursor:pointer;box-shadow:var(--shadow2);display:flex;align-items:center;justify-content:center;transition:all .2s var(--ease);-webkit-tap-highlight-color:transparent;font-family:var(--font)}
+.fab:active{transform:scale(.9)}
+.fab:hover{box-shadow:0 6px 20px rgba(0,0,0,.15)}
+[data-theme="dark"] .fab{background:var(--bg3);color:var(--t1);box-shadow:0 4px 12px rgba(0,0,0,.5)}
+
+/* ── Add form ── */
+.add-form{margin-top:16px}
+.add-label{display:block;font-size:12px;font-weight:600;color:var(--t3);margin-bottom:4px;margin-top:12px}
+.add-label:first-child{margin-top:0}
+.add-input{display:block;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;font-family:var(--font);font-size:15px;color:var(--t1);resize:none;transition:border-color .15s}
+.add-input:focus{outline:none;border-color:var(--gold)}
+.add-input::placeholder{color:var(--t3)}
+.add-btn{width:100%;margin-top:20px;padding:14px}
+.add-btn:disabled{opacity:.5;cursor:default;transform:none}
+
 /* ── Responsive (already mobile-first, add desktop) ── */
 @media(min-width:768px){
   .app{max-width:640px}
