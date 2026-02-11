@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1220,10 +1219,69 @@ func serveCSS(w http.ResponseWriter, r *http.Request) {
 	w.Write(staticCSS)
 }
 
+// ── Platform status (real, no theater) ──
+
+type PlatformStatus struct {
+	Name    string
+	Color   string
+	Status  string // "live", "limited", "down", "unconfigured"
+	Credits string // real credits if available (e.g. "$4.20")
+}
+
+func platformStatuses() []PlatformStatus {
+	var out []PlatformStatus
+
+	// Shelley — check if worker binary exists
+	shelleyStatus := "unconfigured"
+	if _, err := os.Stat("/home/exedev/bin/worker"); err == nil {
+		shelleyStatus = "live"
+	} else if _, err := exec.LookPath("worker"); err == nil {
+		shelleyStatus = "live"
+	}
+	out = append(out, PlatformStatus{
+		Name: "Shelley", Color: "#C8A630", Status: shelleyStatus,
+	})
+
+	// Cloudflare AI — configured = keys present
+	cfStatus := "unconfigured"
+	if os.Getenv("CLOUDFLARE_API_TOKEN") != "" && os.Getenv("CLOUDFLARE_ACCOUNT_ID") != "" {
+		cfStatus = "live" // can't cheaply verify without a real API call
+	}
+	out = append(out, PlatformStatus{
+		Name: "Cloudflare AI", Color: "#D96F0E", Status: cfStatus,
+	})
+
+	// OpenRouter — real credit check
+	orStatus := "unconfigured"
+	var orCredits string
+	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
+		orStatus = "live"
+		if credits, err := fetchOpenRouterCredits(key); err != nil {
+			orStatus = "down"
+		} else if credits > 0.001 {
+			orCredits = fmt.Sprintf("$%.2f", credits)
+		}
+	}
+	out = append(out, PlatformStatus{
+		Name: "OpenRouter", Color: "#7C3AED", Status: orStatus, Credits: orCredits,
+	})
+
+	// OpenCode Zen
+	zenStatus := "unconfigured"
+	if os.Getenv("OPENCODE_ZEN_API_KEY") != "" {
+		zenStatus = "live"
+	}
+	out = append(out, PlatformStatus{
+		Name: "OpenCode Zen", Color: "#10B981", Status: zenStatus,
+	})
+
+	return out
+}
+
 // ── Partial handlers ──
 
 func partialsBalance(w http.ResponseWriter, r *http.Request) {
-	bal := fetchBalance()
+	statuses := platformStatuses()
 	s, _ := readState()
 
 	var live, totalTasks, burned int
@@ -1235,46 +1293,11 @@ func partialsBalance(w http.ResponseWriter, r *http.Request) {
 		burned += t.Tokens
 	}
 
-	// Compute remaining budget: daily budget minus burned
-	// Rough cost model: $3/1M tokens for sonnet-class
-	burnedUSD := float64(burned) * 3.0 / 1_000_000.0
-	remainingUSD := bal.TotalDailyUSD - burnedUSD
-	if remainingUSD < 0 {
-		remainingUSD = 0
-	}
-	remainingTokens := bal.TotalDailyTokens - burned
-	if remainingTokens < 0 {
-		remainingTokens = 0
-	}
-
-	type provData struct {
-		Name, Color, TokensStr, USDStr string
-		Configured                     bool
-	}
-	var providers []provData
-	configured := 0
-	for _, p := range bal.Providers {
-		pd := provData{Name: p.Name, Color: p.Color, Configured: p.Configured}
-		if p.Configured {
-			configured++
-			pd.TokensStr = fmtTokens(p.DailyTokens)
-			pd.USDStr = fmt.Sprintf("%.2f", p.DailyUSD)
-		}
-		providers = append(providers, pd)
-	}
-
-	dollars := int(remainingUSD)
-	cents := fmt.Sprintf("%02d", int(math.Round((remainingUSD-float64(dollars))*100)))
-
 	data := map[string]interface{}{
-		"Dollars":         dollars,
-		"Cents":           cents,
-		"TotalTokensStr":  fmtTokens(remainingTokens),
-		"ConfiguredCount": configured,
-		"Providers":       providers,
-		"Live":            live,
-		"TotalTasks":      totalTasks,
-		"BurnedStr":       fmtTokens(burned),
+		"Providers":  statuses,
+		"Live":       live,
+		"TotalTasks": totalTasks,
+		"BurnedStr":  fmtTokens(burned),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.ExecuteTemplate(w, "balance.html", data)

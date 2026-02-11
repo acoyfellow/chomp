@@ -439,8 +439,8 @@ func TestPartialBalance(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Daily Token Budget") && !strings.Contains(body, "Available Balance") {
-		t.Fatalf("missing balance header in: %s", body[:200])
+	if !strings.Contains(body, "Platforms") {
+		t.Fatalf("missing Platforms header in: %s", body[:200])
 	}
 }
 
@@ -871,29 +871,29 @@ func TestE2E_ProgressBarNotHardcoded(t *testing.T) {
 	}
 }
 
-func TestE2E_BalanceSubtractsBurnedTokens(t *testing.T) {
+func TestE2E_BurnedTokensShowInBalance(t *testing.T) {
 	defer setupTest(t)()
 
-	// Full budget with no burns
+	// No burns — should show 0 burned
 	rec := getReq(partialsBalance, "/partials/balance")
-	if !strings.Contains(rec.Body.String(), "$3") {
-		t.Fatal("should show $3 with no burns")
+	if !strings.Contains(rec.Body.String(), ">0<") {
+		t.Fatal("should show 0 burned with no tasks")
 	}
 
-	// Burn 500k tokens ($1.50 at $3/1M)
+	// Burn 500k tokens
 	postJSON(apiAddTask, `{"prompt":"big task"}`)
 	postJSON(apiRunTask, `{"id":"1","agent":"shelley"}`)
 	postJSON(apiUpdateTask, `{"id":"1","tokens":"500000"}`)
 
 	rec = getReq(partialsBalance, "/partials/balance")
 	body := rec.Body.String()
-	// Should now show $1.50, not $3.00
-	if strings.Contains(body, ">3<") {
-		t.Fatalf("balance should be reduced after burning 500k tokens, body: %s", body)
-	}
-	// Should show 500k remaining tokens (1M - 500k)
+	// Should show 500k in the BURNED metric
 	if !strings.Contains(body, "500k") {
-		t.Fatalf("should show 500k somewhere (remaining or burned), body: %s", body)
+		t.Fatalf("should show 500k burned, body: %s", body)
+	}
+	// Should NOT contain any dollar amounts
+	if strings.Contains(body, "$3") || strings.Contains(body, "$2") || strings.Contains(body, "/day") {
+		t.Fatalf("balance card should have no fake dollar amounts, body: %s", body)
 	}
 }
 

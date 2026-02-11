@@ -1,23 +1,22 @@
 <div class="flex items-center justify-between mb-3">
-  <div class="text-[11px] uppercase tracking-widest opacity-50 font-semibold">Daily Token Budget</div>
+  <div class="text-[11px] uppercase tracking-widest opacity-50 font-semibold">Platforms</div>
   <div class="text-sm opacity-40">›</div>
 </div>
-<div class="text-4xl font-bold tracking-tight leading-none mb-0.5">
-  ${{.Dollars}}<span class="text-xl opacity-60">.{{.Cents}}</span>
-  <span class="text-sm font-semibold opacity-40 ml-1">/day</span>
-</div>
-<div class="text-xs opacity-40 mb-4">{{.TotalTokensStr}} tokens remaining · {{.ConfiguredCount}} provider{{if ne .ConfiguredCount 1}}s{{end}}</div>
-<div class="flex flex-col gap-1.5">
+<div class="flex flex-col gap-1.5 mb-4">
   {{range .Providers}}
-  <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.06] {{if not .Configured}}opacity-30{{end}}">
-    <div class="w-2 h-2 rounded-full shrink-0" style="background:{{.Color}}"></div>
-    <span class="text-xs opacity-70 flex-1">{{.Name}}</span>
-    <span class="text-xs font-bold">{{.TokensStr}}</span>
-    <span class="text-[10px] opacity-40">${{.USDStr}}/day</span>
+  <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.06]">
+    <div class="w-2 h-2 rounded-full shrink-0 {{if eq .Status "live"}}bg-green-500{{else if eq .Status "limited"}}bg-orange-500{{else if eq .Status "down"}}bg-red-500{{else}}bg-zinc-600{{end}}"></div>
+    <span class="text-xs font-medium flex-1" style="color:{{.Color}}">{{.Name}}</span>
+    {{if eq .Status "live"}}<span class="text-[10px] font-semibold text-green-400">live</span>
+    {{else if eq .Status "limited"}}<span class="text-[10px] font-semibold text-orange-400">rate limited</span>
+    {{else if eq .Status "down"}}<span class="text-[10px] font-semibold text-red-400">down</span>
+    {{else}}<span class="text-[10px] opacity-30">not configured</span>
+    {{end}}
+    {{if .Credits}}<span class="text-[10px] font-bold opacity-60 ml-1">{{.Credits}}</span>{{end}}
   </div>
   {{end}}
 </div>
-<div class="flex gap-px mt-4 bg-white/[0.08] rounded-xl overflow-hidden">
+<div class="flex gap-px bg-white/[0.08] rounded-xl overflow-hidden">
   <div class="flex-1 py-2.5 px-2 text-center bg-white/[0.04]">
     <div class="text-base font-bold tracking-tight">{{if gt .Live 0}}<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1 animate-pulse-slow"></span>{{end}}{{.Live}}</div>
     <div class="text-[10px] opacity-50 mt-0.5 uppercase tracking-wider">Live</div>
