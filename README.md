@@ -2,6 +2,10 @@
 
 Task queue for AI agents. Feed tasks in, agents chew through them, dashboard to watch.
 
+<p align="center">
+  <img src="screenshot.png" alt="chomp dashboard" width="390">
+</p>
+
 ## Quick start
 
 ```bash
@@ -66,13 +70,15 @@ esac
 
 ```
 chomp/
-\u251c\u2500\u2500 bin/chomp              CLI
-\u251c\u2500\u2500 adapters/              Platform dispatch scripts
-\u251c\u2500\u2500 dashboard/             Web dashboard (static)
-\u251c\u2500\u2500 server.go              Go server (API + static files)
-\u251c\u2500\u2500 Dockerfile
-\u251c\u2500\u2500 state/                 Runtime state (gitignored)
-\u2514\u2500\u2500 AGENTS.md              Agent/contributor instructions
+├── bin/chomp              CLI
+├── adapters/              Platform dispatch scripts
+├── templates/             Go html/template (HTMX partials)
+├── static/                Tailwind CSS
+├── server.go              Go server (API + templates)
+├── server_test.go         53 tests
+├── Dockerfile             Multi-stage build
+├── state/                 Runtime state (gitignored)
+└── AGENTS.md              Agent/contributor instructions
 ```
 
 ## License

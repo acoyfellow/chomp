@@ -9,7 +9,7 @@
   </div>
 
   <!-- Balance card -->
-  <div hx-get="/partials/balance" hx-trigger="load, every 60s" hx-swap="innerHTML" 
+  <div hx-get="/partials/balance" hx-trigger="load, every 60s, refreshTasks from:body" hx-swap="innerHTML" 
        class="mx-4 mt-3 mb-3 p-5 bg-zinc-900 dark:bg-zinc-800 dark:border dark:border-zinc-700 text-white rounded-2xl cursor-pointer shadow-lg active:scale-[0.98] transition-transform"
        onclick="openSheet('settings-dialog')">
     <div class="text-[11px] uppercase tracking-widest opacity-50 font-semibold">Loading...</div>
@@ -75,8 +75,10 @@ function setTab(el) {
   el.className = 'flex-1 py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-all bg-zinc-900 text-white dark:bg-zinc-200 dark:text-zinc-900 shadow-sm';
   const url = new URL(el.getAttribute('hx-get'), location.href);
   currentTab = url.searchParams.get('tab');
-  // Update polling target
-  document.getElementById('content').setAttribute('hx-get', '/partials/tasks?tab=' + currentTab);
+  // Update polling target — must re-process for HTMX to pick up changed attribute
+  const el2 = document.getElementById('content');
+  el2.setAttribute('hx-get', '/partials/tasks?tab=' + currentTab);
+  htmx.process(el2);
 }
 
 function openSheet(id) {

@@ -647,11 +647,8 @@ func apiDoneTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
-	var body struct {
-		ID     string `json:"id"`
-		Result string `json:"result"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+	fields := decodeBody(r)
+	if fields["id"] == "" {
 		http.Error(w, "need id", 400)
 		return
 	}
@@ -667,9 +664,75 @@ func apiDoneTask(w http.ResponseWriter, r *http.Request) {
 
 	found := false
 	for i := range s.Tasks {
-		if s.Tasks[i].ID == body.ID {
+		if s.Tasks[i].ID == fields["id"] {
 			s.Tasks[i].Status = "done"
-			s.Tasks[i].Result = body.Result
+			if fields["result"] != "" {
+				s.Tasks[i].Result = fields["result"]
+			}
+			if fields["tokens"] != "" {
+				var tk int
+				fmt.Sscanf(fields["tokens"], "%d", &tk)
+				if tk > 0 {
+					s.Tasks[i].Tokens = tk
+				}
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "task not found", 404)
+		return
+	}
+
+	if err := writeState(s); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+
+	w.Header().Set("HX-Trigger", "refreshTasks")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// apiUpdateTask allows partial updates to a task (tokens, status, result).
+func apiUpdateTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	fields := decodeBody(r)
+	if fields["id"] == "" {
+		http.Error(w, "need id", 400)
+		return
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := readStateUnsafe()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	found := false
+	for i := range s.Tasks {
+		if s.Tasks[i].ID == fields["id"] {
+			if fields["tokens"] != "" {
+				var tk int
+				fmt.Sscanf(fields["tokens"], "%d", &tk)
+				if tk > 0 {
+					s.Tasks[i].Tokens = tk
+				}
+			}
+			if fields["result"] != "" {
+				s.Tasks[i].Result = fields["result"]
+			}
 			found = true
 			break
 		}
@@ -958,6 +1021,50 @@ func isStale(ts string, thresholdMin int) bool {
 	return time.Since(t) > time.Duration(thresholdMin)*time.Minute
 }
 
+// taskProgress computes a 0-100 progress percentage.
+// For active tasks: based on tokens burned vs estimated session budget (200k).
+// For done tasks: 100. For queued: 0.
+func taskProgress(t Task) int {
+	switch t.Status {
+	case "done":
+		return 100
+	case "queued":
+		return 0
+	case "active":
+		if t.Tokens <= 0 {
+			// No token data yet — estimate from elapsed time
+			if t.Created == "" {
+				return 5
+			}
+			created, err := time.Parse(time.RFC3339, t.Created)
+			if err != nil {
+				return 5
+			}
+			elapsed := time.Since(created)
+			// Assume ~30min for a typical task
+			pct := int(elapsed.Minutes() / 30.0 * 100)
+			if pct < 5 {
+				pct = 5
+			}
+			if pct > 90 {
+				pct = 90 // never show 100 while active
+			}
+			return pct
+		}
+		// Token-based: estimate 200k tokens per session
+		pct := t.Tokens * 100 / 200_000
+		if pct < 5 {
+			pct = 5
+		}
+		if pct > 95 {
+			pct = 95
+		}
+		return pct
+	default:
+		return 0
+	}
+}
+
 func agentName(platform string) string {
 	agents, _ := mergedAgents()
 	if a, ok := agents[platform]; ok {
@@ -1009,6 +1116,18 @@ func partialsBalance(w http.ResponseWriter, r *http.Request) {
 		burned += t.Tokens
 	}
 
+	// Compute remaining budget: daily budget minus burned
+	// Rough cost model: $3/1M tokens for sonnet-class
+	burnedUSD := float64(burned) * 3.0 / 1_000_000.0
+	remainingUSD := bal.TotalDailyUSD - burnedUSD
+	if remainingUSD < 0 {
+		remainingUSD = 0
+	}
+	remainingTokens := bal.TotalDailyTokens - burned
+	if remainingTokens < 0 {
+		remainingTokens = 0
+	}
+
 	type provData struct {
 		Name, Color, TokensStr, USDStr string
 		Configured                     bool
@@ -1025,13 +1144,13 @@ func partialsBalance(w http.ResponseWriter, r *http.Request) {
 		providers = append(providers, pd)
 	}
 
-	dollars := int(bal.TotalDailyUSD)
-	cents := fmt.Sprintf("%02d", int(math.Round((bal.TotalDailyUSD-float64(dollars))*100)))
+	dollars := int(remainingUSD)
+	cents := fmt.Sprintf("%02d", int(math.Round((remainingUSD-float64(dollars))*100)))
 
 	data := map[string]interface{}{
 		"Dollars":         dollars,
 		"Cents":           cents,
-		"TotalTokensStr":  fmtTokens(bal.TotalDailyTokens),
+		"TotalTokensStr":  fmtTokens(remainingTokens),
 		"ConfiguredCount": configured,
 		"Providers":       providers,
 		"Live":            live,
@@ -1063,8 +1182,8 @@ func partialsTasks(w http.ResponseWriter, r *http.Request) {
 			Elapsed:   timeAgo(t.Created),
 			TokensStr: fmtTokens(t.Tokens),
 			Status:    t.Status,
-			Stale:     isStale(t.Created, 5),
-			ProgressPct: 50,
+			Stale:       isStale(t.Created, 5),
+			ProgressPct: taskProgress(t),
 		}
 		switch t.Status {
 		case "active":
@@ -1322,6 +1441,7 @@ func main() {
 	mux.HandleFunc("/api/tasks", apiAddTask)
 	mux.HandleFunc("/api/tasks/run", apiRunTask)
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)
+	mux.HandleFunc("/api/tasks/update", apiUpdateTask)
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
 	mux.HandleFunc("/api/balance", apiBalance)
 
