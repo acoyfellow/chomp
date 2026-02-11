@@ -381,48 +381,40 @@ func TestCustomAgents_MergedList(t *testing.T) {
 	}
 }
 
-// ── Balance ──
+// ── Platforms ──
 
-func TestBalance(t *testing.T) {
+func TestPlatformStatuses(t *testing.T) {
 	defer setupTest(t)()
-	balanceMu.Lock()
-	balanceCached = nil
-	balanceMu.Unlock()
-
-	w := getReq(apiBalance, "/api/balance")
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d", w.Code)
+	statuses := platformStatuses()
+	if len(statuses) == 0 {
+		t.Fatal("no platforms")
 	}
-	var bal BalanceResponse
-	json.Unmarshal(w.Body.Bytes(), &bal)
-	if len(bal.Providers) == 0 {
-		t.Fatal("no providers")
-	}
-	// Shelley should always be present and configured
+	// Should have Shelley
 	found := false
-	for _, p := range bal.Providers {
-		if p.ID == "shelley" {
+	for _, s := range statuses {
+		if s.Name == "Shelley" {
 			found = true
-			if !p.Configured {
-				t.Fatal("shelley should be configured")
-			}
-			if p.DailyTokens != 1_000_000 {
-				t.Fatalf("expected 1M daily tokens, got %d", p.DailyTokens)
-			}
-			if p.DailyUSD < 2.0 {
-				t.Fatalf("expected ~$3/day, got $%.2f", p.DailyUSD)
+			// Status should be "live" or "unconfigured" — never fake
+			if s.Status != "live" && s.Status != "unconfigured" {
+				t.Fatalf("unexpected shelley status: %s", s.Status)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("missing shelley provider")
+		t.Fatal("missing Shelley platform")
 	}
-	// Total should be at least shelley's contribution
-	if bal.TotalDailyTokens < 1_000_000 {
-		t.Fatalf("expected at least 1M total daily, got %d", bal.TotalDailyTokens)
+}
+
+func TestApiPlatforms(t *testing.T) {
+	defer setupTest(t)()
+	w := getReq(apiPlatforms, "/api/platforms")
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if bal.TotalDailyUSD < 2.0 {
-		t.Fatalf("expected at least $2/day, got $%.2f", bal.TotalDailyUSD)
+	var statuses []PlatformStatus
+	json.Unmarshal(w.Body.Bytes(), &statuses)
+	if len(statuses) < 4 {
+		t.Fatalf("expected 4 platforms, got %d", len(statuses))
 	}
 }
 
@@ -430,10 +422,6 @@ func TestBalance(t *testing.T) {
 
 func TestPartialBalance(t *testing.T) {
 	defer setupTest(t)()
-	balanceMu.Lock()
-	balanceCached = nil
-	balanceMu.Unlock()
-
 	w := getReq(partialsBalance, "/partials/balance")
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -441,6 +429,10 @@ func TestPartialBalance(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Platforms") {
 		t.Fatalf("missing Platforms header in: %s", body[:200])
+	}
+	// Must not contain any dollar amounts
+	if strings.Contains(body, "/day") {
+		t.Fatal("balance card should not contain /day fake budget")
 	}
 }
 
@@ -1197,24 +1189,6 @@ func TestE2E_HandoffCreatesNewSession(t *testing.T) {
 	}
 }
 
-func TestE2E_BudgetBlocksRunWhenExhausted(t *testing.T) {
-	defer setupTest(t)()
-
-	// Create and run a task, burn all daily tokens
-	postJSON(apiAddTask, `{"prompt":"big burn"}`)
-	postJSON(apiRunTask, `{"id":"1"}`)
-	postJSON(apiUpdateTask, `{"id":"1","tokens":"1000000"}`)
-	postJSON(apiDoneTask, `{"id":"1","tokens":"1000000"}`)
-
-	// Create another task
-	postJSON(apiAddTask, `{"prompt":"should be blocked"}`)
-
-	// Try to run it — should be rejected (429)
-	w := postJSON(apiRunTask, `{"id":"2"}`)
-	if w.Code != 429 {
-		t.Fatalf("expected 429 budget exhausted, got %d: %s", w.Code, w.Body.String())
-	}
-}
 
 func TestE2E_PerTaskBudgetFlag(t *testing.T) {
 	defer setupTest(t)()

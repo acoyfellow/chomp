@@ -74,9 +74,7 @@ var (
 	keysMu     sync.Mutex
 	agentsMu   sync.Mutex
 
-	balanceMu     sync.Mutex
-	balanceCached *BalanceResponse
-	balanceCachedAt time.Time
+
 )
 
 var builtinAgentIDs = map[string]bool{
@@ -638,14 +636,6 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Budget gate: refuse to start if daily budget exhausted
-	bal := fetchBalance()
-	burned := totalBurnedTokens(s)
-	if burned >= bal.TotalDailyTokens {
-		http.Error(w, "daily token budget exhausted", 429)
-		return
-	}
-
 	found := false
 	for i := range s.Tasks {
 		if s.Tasks[i].ID == body.ID && s.Tasks[i].Status == "queued" {
@@ -918,26 +908,7 @@ func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// --------------- Balance endpoint ---------------
-
-type ProviderBalance struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Color       string  `json:"color"`
-	Configured  bool    `json:"configured"`
-	DailyTokens int     `json:"daily_tokens"`
-	DailyUSD    float64 `json:"daily_usd"`
-	Source      string  `json:"source"`
-	Note        string  `json:"note,omitempty"`
-	Error       string  `json:"error,omitempty"`
-}
-
-type BalanceResponse struct {
-	TotalDailyTokens int               `json:"total_daily_tokens"`
-	TotalDailyUSD    float64           `json:"total_daily_usd"`
-	Providers        []ProviderBalance `json:"providers"`
-	CheckedAt        string            `json:"checked_at"`
-}
+// --------------- Platform checks ---------------
 
 // fetchOpenRouterCredits returns the remaining credits in USD for the given API key.
 func fetchOpenRouterCredits(apiKey string) (float64, error) {
@@ -975,121 +946,14 @@ func fetchOpenRouterCredits(apiKey string) (float64, error) {
 	return keyResp.Data.LimitRemaining, nil
 }
 
-func fetchBalance() *BalanceResponse {
-	var providers []ProviderBalance
-	var totalTokens int
-	var totalUSD float64
-
-	// --- Shelley (exe.dev) — always configured ---
-	shelley := ProviderBalance{
-		ID:          "shelley",
-		Name:        "Shelley (exe.dev)",
-		Color:       "#C8A630",
-		Configured:  true,
-		DailyTokens: 1_000_000,
-		DailyUSD:    3.00,
-		Source:      "Claude Sonnet 4 via exe.dev runtime",
-	}
-	providers = append(providers, shelley)
-	totalTokens += shelley.DailyTokens
-	totalUSD += shelley.DailyUSD
-
-	// --- Cloudflare Workers AI ---
-	cfToken := os.Getenv("CLOUDFLARE_API_TOKEN")
-	cfAccount := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
-	cfConfigured := cfToken != "" && cfAccount != ""
-	cf := ProviderBalance{
-		ID:         "cloudflare",
-		Name:       "Cloudflare AI",
-		Color:      "#D96F0E",
-		Configured: cfConfigured,
-		Source:     "10,000 neurons/day free tier (developers.cloudflare.com/workers-ai/platform/pricing)",
-	}
-	if cfConfigured {
-		cf.DailyTokens = 10_000
-		cf.DailyUSD = 0.03
-		totalTokens += cf.DailyTokens
-		totalUSD += cf.DailyUSD
-	}
-	providers = append(providers, cf)
-
-	// --- OpenRouter ---
-	orKey := os.Getenv("OPENROUTER_API_KEY")
-	orConfigured := orKey != ""
-	or := ProviderBalance{
-		ID:         "openrouter",
-		Name:       "OpenRouter",
-		Color:      "#7C3AED",
-		Configured: orConfigured,
-		Source:     "Free models (Llama 3, Gemma) rate-limited to ~200 req/day",
-	}
-	if orConfigured {
-		or.DailyTokens = 800_000
-		or.DailyUSD = 0.24
-		totalTokens += or.DailyTokens
-		totalUSD += or.DailyUSD
-
-		// Check for real credits (additive to daily budget)
-		credits, err := fetchOpenRouterCredits(orKey)
-		if err != nil {
-			or.Error = err.Error()
-		} else if credits > 0.001 {
-			or.Note = fmt.Sprintf("Plus $%.2f in credits", credits)
-		}
-	}
-	providers = append(providers, or)
-
-	// --- OpenCode Zen ---
-	zenKey := os.Getenv("OPENCODE_ZEN_API_KEY")
-	zenConfigured := zenKey != ""
-	zen := ProviderBalance{
-		ID:         "opencode",
-		Name:       "OpenCode Zen",
-		Color:      "#10B981",
-		Configured: zenConfigured,
-		Source:     "OpenCode Zen tier allocation",
-	}
-	if zenConfigured {
-		zen.DailyTokens = 500_000
-		zen.DailyUSD = 1.50
-		totalTokens += zen.DailyTokens
-		totalUSD += zen.DailyUSD
-	}
-	providers = append(providers, zen)
-
-	return &BalanceResponse{
-		TotalDailyTokens: totalTokens,
-		TotalDailyUSD:    totalUSD,
-		Providers:        providers,
-		CheckedAt:        time.Now().UTC().Format(time.RFC3339),
-	}
-}
-
-func apiBalance(w http.ResponseWriter, r *http.Request) {
+// apiPlatforms returns real platform status as JSON.
+func apiPlatforms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", 405)
 		return
 	}
-
-	balanceMu.Lock()
-	if balanceCached != nil && time.Since(balanceCachedAt) < 60*time.Second {
-		resp := balanceCached
-		balanceMu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-		return
-	}
-	balanceMu.Unlock()
-
-	resp := fetchBalance()
-
-	balanceMu.Lock()
-	balanceCached = resp
-	balanceCachedAt = time.Now()
-	balanceMu.Unlock()
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(platformStatuses())
 }
 
 // ── Template helpers ──
@@ -1625,7 +1489,7 @@ func main() {
 	mux.HandleFunc("/api/tasks/update", apiUpdateTask)
 	mux.HandleFunc("/api/tasks/handoff", apiHandoffTask)
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
-	mux.HandleFunc("/api/balance", apiBalance)
+	mux.HandleFunc("/api/platforms", apiPlatforms)
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
