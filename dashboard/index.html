@@ -20,16 +20,16 @@
 <!-- App -->
 <div id="app" class="app">
 
-  <!-- Summary strip -->
-  <div class="summary-row">
+  <!-- Top bar: summary + actions -->
+  <div class="topbar">
     <div class="summary" id="summary"></div>
-    <div class="top-actions">
+    <div class="topbar-actions">
       <button class="icon-btn" onclick="openSettings()" aria-label="Settings">⚙</button>
       <button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
     </div>
   </div>
 
-  <!-- Tab bar (top) -->
+  <!-- Tab bar -->
   <div class="tabs">
     <button class="tab active" data-tab="active">Active</button>
     <button class="tab" data-tab="done">Completed</button>
@@ -38,10 +38,12 @@
   <!-- Scrollable content -->
   <div class="content" id="content"></div>
 
-</div>
+  <!-- Add button — in flow, always at bottom of content -->
+  <div class="add-bar">
+    <button class="fab" onclick="openAdd()" aria-label="Add task">+ New Task</button>
+  </div>
 
-<!-- FAB (outside .app so position:fixed works despite transform) -->
-<button class="fab" onclick="openAdd()" aria-label="Add task">+</button>
+</div>
 
 <!-- Detail sheet -->
 <div id="sheet-bg" class="sheet-bg" onclick="closeSheet()"></div>
