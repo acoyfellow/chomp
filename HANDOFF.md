@@ -66,12 +66,17 @@ docker run -d --name chomp --restart unless-stopped -p 8000:8001 -v /home/exedev
 | POST | /api/tasks/delete | Delete task |
 
 ## What to work on next
-1. ~~**Delete waiting tasks doesn't refresh UI**~~ ✅ Fixed — server sends `HX-Trigger: refreshTasks`, content div listens.
+1. ~~**Delete waiting tasks doesn't refresh UI**~~ ✅ Fixed.
 2. ~~**Old `dashboard/` directory**~~ ✅ Deleted.
-3. ~~**Settings: agent install/BYO UI**~~ ✅ Added — install form + remove button for custom agents.
-4. ~~**Create task wizard**~~ ✅ Rebuilt as 4-step HTMX wizard (prompt→agent→model→review).
-5. **Session tracking** — detail sheet says "No session history yet". Wire to real agent session data.
-6. **Gateproof integration** — tasks with gate files, verification loops.
+3. ~~**Settings: agent install/BYO UI**~~ ✅ Added.
+4. ~~**Create task wizard**~~ ✅ 4-step HTMX wizard.
+5. ~~**Session tracking**~~ ✅ Session struct, activity timeline, handoff chaining.
+6. ~~**Boot screen**~~ ✅ PS5-style wordmark + gold bar animation.
+7. ~~**Agent/model stamping**~~ ✅ Git commit trailers via `chomp done`.
+8. ~~**Token budget enforcement**~~ ✅ Daily gate (429) + per-task flag (300k).
+9. **Dashboard dispatch** — wire ▶ button to actually exec adapter scripts from Go server.
+10. **Gateproof integration** — tasks with gate files, verification loops.
+11. **Pi adapter** — third agent platform.
 
 ## Critical rules
 - **Run tests before committing**: `go test -count=1 -run . server_test.go server.go`
