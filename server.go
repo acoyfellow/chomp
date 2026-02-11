@@ -1231,12 +1231,18 @@ type PlatformStatus struct {
 func platformStatuses() []PlatformStatus {
 	var out []PlatformStatus
 
-	// Shelley — check if worker binary exists
+	// Shelley — check if worker binary or exe.dev environment exists
 	shelleyStatus := "unconfigured"
-	if _, err := os.Stat("/home/exedev/bin/worker"); err == nil {
-		shelleyStatus = "live"
-	} else if _, err := exec.LookPath("worker"); err == nil {
-		shelleyStatus = "live"
+	for _, p := range []string{"/home/exedev/bin/worker", "/usr/local/bin/worker"} {
+		if _, err := os.Stat(p); err == nil {
+			shelleyStatus = "live"
+			break
+		}
+	}
+	if shelleyStatus == "unconfigured" {
+		if _, err := exec.LookPath("worker"); err == nil {
+			shelleyStatus = "live"
+		}
 	}
 	out = append(out, PlatformStatus{
 		Name: "Shelley", Color: "#C8A630", Status: shelleyStatus,
