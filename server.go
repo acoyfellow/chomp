@@ -97,6 +97,91 @@ func writeState(s *State) error {
 	return os.Rename(tmp, stateFile)
 }
 
+type KeyStatus struct {
+	Name    string `json:"name"`
+	EnvVar  string `json:"env_var"`
+	Set     bool   `json:"set"`
+	Preview string `json:"preview"` // first 4 + last 4 chars
+}
+
+type ConfigResponse struct {
+	Agents  map[string]AgentConfig  `json:"agents"`
+	Routers map[string]RouterConfig `json:"routers"`
+}
+
+type AgentConfig struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+	Note      string `json:"note"`
+}
+
+type RouterConfig struct {
+	Name string      `json:"name"`
+	Keys []KeyStatus `json:"keys"`
+}
+
+func maskKey(val string) string {
+	if len(val) <= 8 {
+		return "****"
+	}
+	return val[:4] + "..." + val[len(val)-4:]
+}
+
+func checkKey(name, envVar string) KeyStatus {
+	val := os.Getenv(envVar)
+	ks := KeyStatus{Name: name, EnvVar: envVar, Set: val != ""}
+	if ks.Set {
+		ks.Preview = maskKey(val)
+	}
+	return ks
+}
+
+func apiConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := ConfigResponse{
+		Agents: map[string]AgentConfig{
+			"shelley": {
+				Name:      "Shelley",
+				Available: true,
+				Note:      "exe.dev worker loops (built-in)",
+			},
+			"opencode": {
+				Name:      "OpenCode",
+				Available: func() bool { _, err := os.Stat("/usr/local/bin/opencode"); return err == nil }(),
+				Note:      "CLI agent",
+			},
+			"pi": {
+				Name:      "Pi",
+				Available: false,
+				Note:      "Not yet configured",
+			},
+		},
+		Routers: map[string]RouterConfig{
+			"cf-ai": {
+				Name: "Cloudflare AI Gateway",
+				Keys: []KeyStatus{
+					checkKey("API Token", "CLOUDFLARE_API_TOKEN"),
+					checkKey("Account ID", "CLOUDFLARE_ACCOUNT_ID"),
+					checkKey("AI Gateway ID", "CLOUDFLARE_AI_GATEWAY_ID"),
+				},
+			},
+			"zen": {
+				Name: "OpenCode Zen",
+				Keys: []KeyStatus{
+					checkKey("API Key", "OPENCODE_ZEN_API_KEY"),
+				},
+			},
+			"openrouter": {
+				Name: "OpenRouter",
+				Keys: []KeyStatus{
+					checkKey("API Key", "OPENROUTER_API_KEY"),
+				},
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cfg)
+}
+
 func apiState(w http.ResponseWriter, r *http.Request) {
 	s, err := readState()
 	if err != nil {
@@ -324,6 +409,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", apiState)
+	mux.HandleFunc("/api/config", apiConfig)
 	mux.HandleFunc("/api/tasks", apiAddTask)
 	mux.HandleFunc("/api/tasks/run", apiRunTask)
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)

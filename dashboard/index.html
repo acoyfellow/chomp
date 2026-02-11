@@ -22,8 +22,10 @@
 
   <!-- Summary strip -->
   <div class="summary" id="summary"></div>
-  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
-  <!-- old + task button removed, FAB handles it -->
+  <div class="top-actions">
+    <button class="icon-btn" onclick="openSettings()" aria-label="Settings">⚙</button>
+    <button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+  </div>
 
   <!-- Tab bar (top) -->
   <div class="tabs">
@@ -48,6 +50,15 @@
 </div>
 
 
+
+<!-- Settings drawer -->
+<div id="settings-bg" class="sheet-bg" onclick="closeSettings()"></div>
+<div id="settings-sheet" class="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-body" id="settings-body">
+    <div class="sh-title">Loading...</div>
+  </div>
+</div>
 
 <!-- Unified create + dispatch sheet -->
 <div id="create-bg" class="sheet-bg" onclick="closeCreate()"></div>

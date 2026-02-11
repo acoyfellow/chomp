@@ -283,6 +283,92 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   renderContent();
 }));
 
+// ── Settings drawer ──
+async function openSettings() {
+  document.getElementById('settings-bg').classList.add('open');
+  document.getElementById('settings-sheet').classList.add('open');
+  document.getElementById('settings-body').innerHTML = '<div class="sh-title">Loading...</div><div class="spinner" style="margin:20px auto;display:block;width:20px;height:20px"></div>';
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) throw new Error(await res.text());
+    const cfg = await res.json();
+    renderSettings(cfg);
+  } catch(e) {
+    document.getElementById('settings-body').innerHTML = `<div class="sh-title">Settings</div><div style="color:var(--red);padding:20px">Failed to load config: ${e.message}</div>`;
+  }
+}
+function closeSettings() {
+  document.getElementById('settings-bg').classList.remove('open');
+  document.getElementById('settings-sheet').classList.remove('open');
+}
+
+function renderSettings(cfg) {
+  const body = document.getElementById('settings-body');
+  
+  // Agents section
+  let agentsHtml = Object.entries(cfg.agents).map(([id, a]) => {
+    const color = AGENTS[id]?.color || '#999';
+    return `<div class="cfg-item">
+      <div class="cfg-dot ${a.available ? 'ok' : 'miss'}"></div>
+      <div class="cfg-info">
+        <div class="cfg-name" style="color:${color}">${a.name}</div>
+        <div class="cfg-detail">${a.note}</div>
+      </div>
+      <div class="cfg-badge ${a.available ? 'ok' : 'miss'}">${a.available ? 'Ready' : 'Missing'}</div>
+    </div>`;
+  }).join('');
+
+  // Routers section
+  let routersHtml = Object.entries(cfg.routers).map(([id, r]) => {
+    const allSet = r.keys.every(k => k.set);
+    const someSet = r.keys.some(k => k.set);
+    const dotCls = allSet ? 'ok' : someSet ? 'warn' : 'miss';
+    const badgeCls = allSet ? 'ok' : 'miss';
+    const badgeText = allSet ? 'Ready' : `${r.keys.filter(k=>!k.set).length} missing`;
+    const routerColor = ROUTERS[id]?.color || '#999';
+    
+    const keysHtml = r.keys.map(k => `
+      <div class="cfg-key">
+        <div class="cfg-key-name">${k.name}</div>
+        ${k.set 
+          ? `<div class="cfg-key-val">${k.preview}</div><div class="cfg-key-status ok">\u2713</div>`
+          : `<div class="cfg-key-val">${k.env_var}</div><div class="cfg-key-status miss">\u2717</div>`
+        }
+      </div>
+    `).join('');
+
+    return `<div class="cfg-item" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="cfg-dot ${dotCls}"></div>
+        <div class="cfg-info">
+          <div class="cfg-name" style="color:${routerColor}">${r.name}</div>
+        </div>
+        <div class="cfg-badge ${badgeCls}">${badgeText}</div>
+      </div>
+      <div class="cfg-keys">${keysHtml}</div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="sh-title">Settings</div>
+    <div class="cfg-section">
+      <div class="sh-label">Agents</div>
+      ${agentsHtml}
+    </div>
+    <div class="cfg-section">
+      <div class="sh-label">Gateways</div>
+      ${routersHtml}
+    </div>
+    <div class="cfg-section">
+      <div class="sh-label">How to configure</div>
+      <div style="font-size:12px;color:var(--t3);padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+        Set environment variables on the Docker container:<br><br>
+        <code style="font-size:11px;color:var(--t2)">docker run -e OPENROUTER_API_KEY=sk-... \\ <br>&nbsp;&nbsp;-e CLOUDFLARE_API_TOKEN=... chomp</code>
+      </div>
+    </div>
+    <button class="btn btn-secondary" style="width:100%" onclick="closeSettings()">Close</button>`;
+}
+
 // ── Theme ──
 function toggleTheme() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
