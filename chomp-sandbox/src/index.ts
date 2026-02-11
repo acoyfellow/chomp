@@ -5,6 +5,8 @@ export { Sandbox } from '@cloudflare/sandbox';
 interface Env {
   Sandbox: DurableObjectNamespace<SandboxType>;
   CHOMP_API: string;
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
 }
 
 interface DispatchRequest {
@@ -118,6 +120,8 @@ async function handleDispatch(request: Request, env: Env): Promise<Response> {
           AGENT: agent,
           MODEL: model,
           REPO_DIR: workDir,
+          ...(env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } : {}),
+          ...(env.OPENAI_API_KEY ? { OPENAI_API_KEY: env.OPENAI_API_KEY } : {}),
         },
         cwd: workDir,
         processId: `agent-${taskId}`,
