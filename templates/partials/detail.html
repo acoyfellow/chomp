@@ -62,7 +62,7 @@
       <span class="text-[10px] text-zinc-400 font-mono">{{.SandboxID}}</span>
     </div>
   </div>
-  <div id="sandbox-output" class="bg-zinc-900 text-green-400 text-xs font-mono p-3 rounded-xl max-h-48 overflow-y-auto whitespace-pre-wrap break-all"
+  <div id="sandbox-output" style="color:#4ade80" class="bg-zinc-900 text-[13px] leading-5 font-mono p-4 rounded-xl max-h-64 overflow-y-auto whitespace-pre-wrap break-all"
        hx-get="/api/sandbox/output/{{.ID}}"
        hx-trigger="load, every 5s"
        hx-swap="innerHTML">Loading sandbox output...</div>
