@@ -155,10 +155,11 @@ Dashboard (Go, exe.dev :8000)       Cloudflare Edge
 - `/exec/:sandboxId` and `/logs/:sandboxId/:processId` Worker endpoints
 - Note: `terminal()` method not in SDK 0.7.0; using exec/logs API instead
 
-**Phase 4: Gate verification loop**
-- After agent says "done", sandbox runs `gates/health.sh`
-- Pass → `chomp done`. Fail → inject output, agent loops (new session)
-- Max N loops before marking failed
+**Phase 4: Gate verification loop ✅ DONE**
+- run-agent checks for `gates/health.sh` after agent completes
+- Pass → `chomp done`. Fail → re-run agent with gate output injected
+- Configurable MAX_GATE_LOOPS (default 3), then marks failed
+- Deployed to Cloudflare
 
 **Phase 5: Pi adapter**
 - `pi` installed in Dockerfile (`npm i -g @mariozechner/pi-coding-agent`)
