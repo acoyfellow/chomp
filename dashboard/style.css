@@ -150,6 +150,29 @@ body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:15px
 .git-msg{color:var(--t2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .git-agent{color:var(--t3);flex-shrink:0;font-size:11px}
 
+/* ── Task detail ── */
+.detail-header{margin-bottom:12px}
+.detail-status{display:flex;align-items:center;gap:8px}
+.detail-status-text{font-size:13px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.5px}
+.detail-elapsed{font-size:12px;color:var(--t3);margin-left:auto;font-variant-numeric:tabular-nums}
+.detail-stale{font-size:12px;color:var(--orange);margin-top:4px;font-weight:500}
+.detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:16px 0}
+.detail-meta-item{background:var(--bg);padding:12px}
+.detail-meta-label{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+.detail-meta-val{font-size:15px;font-weight:600}
+.detail-sessions{border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.detail-session{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--border)}
+.detail-session:last-child{border-bottom:none}
+.detail-ses-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.detail-ses-info{flex:1;min-width:0}
+.detail-ses-num{font-size:12px;font-weight:600;color:var(--t2)}
+.detail-ses-summary{font-size:12px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail-ses-tokens{font-size:11px;color:var(--t3);flex-shrink:0}
+.detail-empty-ses{padding:20px;text-align:center;font-size:13px;color:var(--t3)}
+.detail-live{display:flex;align-items:center;gap:10px;padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;margin:16px 0}
+.detail-live-indicator{flex-shrink:0}
+.detail-live-text{font-size:13px;color:var(--t2)}
+
 /* Actions */
 .sh-actions{display:flex;gap:8px;margin-top:4px}
 .btn{flex:1;padding:12px;border-radius:10px;border:none;font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;transition:all .15s var(--ease);-webkit-tap-highlight-color:transparent}
@@ -203,13 +226,27 @@ body{font-family:var(--font);background:var(--bg);color:var(--t1);font-size:15px
 .cfg-badge.ok{color:var(--green);background:#16A34A12}
 .cfg-badge.miss{color:var(--red);background:#DC262612}
 .cfg-keys{margin-top:6px;padding-left:20px}
-.cfg-key{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)}
+.cfg-summary{font-size:13px;color:var(--t3);margin-bottom:16px}
+.cfg-key{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:12px;border-bottom:1px solid var(--border)}
 .cfg-key:last-child{border-bottom:none}
-.cfg-key-name{color:var(--t2);flex:1}
+.cfg-key-name{color:var(--t2);flex:1;font-weight:500}
 .cfg-key-val{font-family:monospace;font-size:11px;color:var(--t3)}
-.cfg-key-status{font-size:10px;font-weight:600}
-.cfg-key-status.ok{color:var(--green)}
-.cfg-key-status.miss{color:var(--red)}
+.cfg-key-env{opacity:.5;font-style:italic}
+.cfg-key-action{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--t3);transition:all .15s var(--ease);flex-shrink:0;-webkit-tap-highlight-color:transparent}
+.cfg-key-action:active{transform:scale(.9)}
+.cfg-key-edit:hover{color:var(--blue);border-color:var(--blue)}
+.cfg-key-del:hover{color:var(--red);border-color:var(--red)}
+.cfg-key-add{color:var(--green);border-color:var(--green);font-size:16px;font-weight:600}
+.cfg-key-add:hover{background:var(--green);color:#fff}
+.cfg-key-editing{flex-direction:column;align-items:stretch;gap:6px;background:var(--bg);padding:10px;border-radius:8px;margin:4px 0}
+.cfg-key-edit-row{display:flex;gap:6px;align-items:center}
+.cfg-key-input{flex:1;background:var(--bg1);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:monospace;font-size:12px;color:var(--t1);outline:none;transition:border-color .15s}
+.cfg-key-input:focus{border-color:var(--gold)}
+.cfg-key-input::placeholder{color:var(--t3)}
+.cfg-key-save{background:var(--green);color:#fff;border:none;border-radius:6px;padding:8px 14px;font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s var(--ease);-webkit-tap-highlight-color:transparent}
+.cfg-key-save:active{transform:scale(.95)}
+.cfg-key-cancel{background:none;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--t3);cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.cfg-key-cancel:hover{color:var(--red);border-color:var(--red)}
 
 /* ── Level bar (XP style) ── */
 .level-bar{margin-top:12px}

@@ -145,22 +145,69 @@ function renderSheet() {
   if (!l) return;
   const stale = isStale(l.created, 5);
   const elapsed = ago(l.created);
+  const agentName = AGENTS[l.platform]?.name || l.platform || 'Unassigned';
+  const agentColor = AGENTS[l.platform]?.color || '#999';
+
+  // Elapsed time formatted nicely
+  const startDate = l.created ? new Date(l.created) : null;
+  const startStr = startDate ? startDate.toLocaleString(undefined, {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '—';
+
+  // Sessions placeholder (will be populated when we have session tracking)
+  const sessCount = l.sessions?.length || 0;
+  const sessHtml = sessCount > 0 ? l.sessions.map((s, i) => `
+    <div class="detail-session">
+      <div class="detail-ses-dot" style="background:${s.status === 'pass' ? 'var(--green)' : s.status === 'fail' ? 'var(--red)' : 'var(--orange)'}"></div>
+      <div class="detail-ses-info">
+        <div class="detail-ses-num">Session ${i+1}</div>
+        ${s.summary ? `<div class="detail-ses-summary">${s.summary}</div>` : ''}
+      </div>
+      ${s.tokens ? `<div class="detail-ses-tokens">${fmt(s.tokens)}</div>` : ''}
+    </div>`).join('') : `<div class="detail-empty-ses">No session history yet</div>`;
+
   document.getElementById('sheet-body').innerHTML = `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-      <div class="badge badge-running"><span class="spinner"></span> active</div>
-      <div class="agent-chip chip-time">${elapsed}</div>
-      ${stale ? '<div class="agent-chip chip-warn">\u26a0 stale \u2014 no progress in 5+ min</div>' : ''}
+    <div class="detail-header">
+      <div class="detail-status">
+        <span class="spinner"></span>
+        <span class="detail-status-text">Running</span>
+        <span class="detail-elapsed">${elapsed}</span>
+      </div>
+      ${stale ? '<div class="detail-stale">\u26a0 No progress in 5+ min</div>' : ''}
     </div>
-    <div class="sh-title">${l.prompt}</div>
+
+    <div class="sh-title" style="margin-bottom:4px">${l.prompt}</div>
     ${l.dir ? `<div class="sh-dir">${l.dir}</div>` : ''}
-    ${l.platform ? `<div class="sh-dir">Agent: ${AGENTS[l.platform]?.name || l.platform}</div>` : ''}
-    ${l.created ? `<div class="sh-dir">Started: ${new Date(l.created).toLocaleString()}</div>` : ''}
-    <div class="sh-section">
-      <div class="sh-label">Tokens</div>
-      <div class="tok-labels"><span>${fmt(l.totalTokens)} burned</span></div>
+
+    <div class="detail-meta">
+      <div class="detail-meta-item">
+        <div class="detail-meta-label">Agent</div>
+        <div class="detail-meta-val" style="color:${agentColor}">${agentName}</div>
+      </div>
+      <div class="detail-meta-item">
+        <div class="detail-meta-label">Started</div>
+        <div class="detail-meta-val">${startStr}</div>
+      </div>
+      <div class="detail-meta-item">
+        <div class="detail-meta-label">Tokens</div>
+        <div class="detail-meta-val">${fmt(l.totalTokens)}</div>
+      </div>
+      <div class="detail-meta-item">
+        <div class="detail-meta-label">Sessions</div>
+        <div class="detail-meta-val">${sessCount || '—'}</div>
+      </div>
     </div>
+
+    <div class="sh-section">
+      <div class="sh-label">Activity</div>
+      <div class="detail-sessions">${sessHtml}</div>
+    </div>
+
+    <div class="detail-live">
+      <div class="detail-live-indicator"><span class="spinner" style="width:14px;height:14px;border-width:2px"></span></div>
+      <div class="detail-live-text">Agent is working...</div>
+    </div>
+
     <div class="sh-actions">
-      <button class="btn btn-danger" onclick="deleteTask('${l.id}')">Delete</button>
+      <button class="btn btn-danger" onclick="deleteTask('${l.id}')">Delete Task</button>
       <button class="btn btn-secondary" onclick="closeSheet()">Close</button>
     </div>`;
 }
@@ -302,11 +349,15 @@ function closeSettings() {
   document.getElementById('settings-sheet').classList.remove('open');
 }
 
+let settingsCfg = null;
+let editingKey = null; // env_var name currently being edited
+
 function renderSettings(cfg) {
+  settingsCfg = cfg;
   const body = document.getElementById('settings-body');
   
   // Agents section
-  let agentsHtml = Object.entries(cfg.agents).map(([id, a]) => {
+  const agentsHtml = Object.entries(cfg.agents).map(([id, a]) => {
     const color = AGENTS[id]?.color || '#999';
     return `<div class="cfg-item">
       <div class="cfg-dot ${a.available ? 'ok' : 'miss'}"></div>
@@ -318,8 +369,8 @@ function renderSettings(cfg) {
     </div>`;
   }).join('');
 
-  // Routers section
-  let routersHtml = Object.entries(cfg.routers).map(([id, r]) => {
+  // Routers section with editable keys
+  const routersHtml = Object.entries(cfg.routers).map(([id, r]) => {
     const allSet = r.keys.every(k => k.set);
     const someSet = r.keys.some(k => k.set);
     const dotCls = allSet ? 'ok' : someSet ? 'warn' : 'miss';
@@ -327,15 +378,33 @@ function renderSettings(cfg) {
     const badgeText = allSet ? 'Ready' : `${r.keys.filter(k=>!k.set).length} missing`;
     const routerColor = ROUTERS[id]?.color || '#999';
     
-    const keysHtml = r.keys.map(k => `
-      <div class="cfg-key">
+    const keysHtml = r.keys.map(k => {
+      const isEditing = editingKey === k.env_var;
+      if (isEditing) {
+        return `<div class="cfg-key cfg-key-editing">
+          <div class="cfg-key-name">${k.name}</div>
+          <div class="cfg-key-edit-row">
+            <input type="text" class="cfg-key-input" id="key-input-${k.env_var}" 
+              placeholder="Paste key..." autocomplete="off" spellcheck="false">
+            <button class="cfg-key-save" onclick="saveKey('${k.env_var}')">Save</button>
+            <button class="cfg-key-cancel" onclick="cancelEditKey()">\u2715</button>
+          </div>
+        </div>`;
+      }
+      if (k.set) {
+        return `<div class="cfg-key">
+          <div class="cfg-key-name">${k.name}</div>
+          <div class="cfg-key-val">${k.preview}</div>
+          <button class="cfg-key-action cfg-key-edit" onclick="startEditKey('${k.env_var}')" title="Replace">\u270E</button>
+          <button class="cfg-key-action cfg-key-del" onclick="deleteKey('${k.env_var}', '${k.name}')" title="Delete">\u2715</button>
+        </div>`;
+      }
+      return `<div class="cfg-key cfg-key-missing">
         <div class="cfg-key-name">${k.name}</div>
-        ${k.set 
-          ? `<div class="cfg-key-val">${k.preview}</div><div class="cfg-key-status ok">\u2713</div>`
-          : `<div class="cfg-key-val">${k.env_var}</div><div class="cfg-key-status miss">\u2717</div>`
-        }
-      </div>
-    `).join('');
+        <div class="cfg-key-val cfg-key-env">${k.env_var}</div>
+        <button class="cfg-key-action cfg-key-add" onclick="startEditKey('${k.env_var}')" title="Add key">+</button>
+      </div>`;
+    }).join('');
 
     return `<div class="cfg-item" style="flex-direction:column;align-items:stretch">
       <div style="display:flex;align-items:center;gap:10px">
@@ -349,24 +418,75 @@ function renderSettings(cfg) {
     </div>`;
   }).join('');
 
+  // Count totals
+  const allKeys = Object.values(cfg.routers).flatMap(r => r.keys);
+  const setCount = allKeys.filter(k => k.set).length;
+  const totalCount = allKeys.length;
+
   body.innerHTML = `
     <div class="sh-title">Settings</div>
+    <div class="cfg-summary">${setCount} of ${totalCount} keys configured</div>
     <div class="cfg-section">
       <div class="sh-label">Agents</div>
       ${agentsHtml}
     </div>
     <div class="cfg-section">
-      <div class="sh-label">Gateways</div>
+      <div class="sh-label">API Keys</div>
       ${routersHtml}
     </div>
-    <div class="cfg-section">
-      <div class="sh-label">How to configure</div>
-      <div style="font-size:12px;color:var(--t3);padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
-        Set environment variables on the Docker container:<br><br>
-        <code style="font-size:11px;color:var(--t2)">docker run -e OPENROUTER_API_KEY=sk-... \\ <br>&nbsp;&nbsp;-e CLOUDFLARE_API_TOKEN=... chomp</code>
-      </div>
-    </div>
-    <button class="btn btn-secondary" style="width:100%" onclick="closeSettings()">Close</button>`;
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeSettings()">Done</button>`;
+
+  // Focus input if editing
+  if (editingKey) {
+    setTimeout(() => {
+      const inp = document.getElementById('key-input-' + editingKey);
+      if (inp) inp.focus();
+    }, 50);
+  }
+}
+
+function startEditKey(envVar) {
+  editingKey = envVar;
+  if (settingsCfg) renderSettings(settingsCfg);
+}
+
+function cancelEditKey() {
+  editingKey = null;
+  if (settingsCfg) renderSettings(settingsCfg);
+}
+
+async function saveKey(envVar) {
+  const inp = document.getElementById('key-input-' + envVar);
+  const val = inp ? inp.value.trim() : '';
+  if (!val) { showToast('Key cannot be empty', true); return; }
+  try {
+    const res = await fetch('/api/config/keys', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({key: envVar, value: val})
+    });
+    if (!res.ok) throw new Error(await res.text());
+    editingKey = null;
+    showToast('Key saved');
+    // Reload config
+    const cfgRes = await fetch('/api/config');
+    if (cfgRes.ok) renderSettings(await cfgRes.json());
+  } catch(e) { showToast('Save failed: ' + e.message, true); }
+}
+
+async function deleteKey(envVar, name) {
+  if (!confirm(`Delete ${name}?`)) return;
+  try {
+    const res = await fetch('/api/config/keys', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({key: envVar, value: ''})
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Key removed');
+    const cfgRes = await fetch('/api/config');
+    if (cfgRes.ok) renderSettings(await cfgRes.json());
+  } catch(e) { showToast('Delete failed: ' + e.message, true); }
 }
 
 // ── Theme ──
