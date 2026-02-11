@@ -147,10 +147,13 @@ Dashboard (Go, exe.dev :8000)       Cloudflare Edge
 - TestSandboxDispatch with mock Worker (60 tests passing)
 - Docker rebuilt and redeployed
 
-**Phase 3: Live terminal**
-- xterm.js in detail sheet (CDN: xterm.js + `@cloudflare/sandbox/addon`)
-- WebSocket to Worker `/ws/terminal/:sandboxId`
-- Show when task is active, hide when done
+**Phase 3: Live sandbox output ✅ DONE**
+- Sandbox output viewer in detail sheet (auto-polls every 5s)
+- `/api/sandbox/output/:taskId` proxies agent logs from Worker
+- ANSI escape code stripping for clean display
+- Green-on-dark terminal aesthetic with sandbox ID indicator
+- `/exec/:sandboxId` and `/logs/:sandboxId/:processId` Worker endpoints
+- Note: `terminal()` method not in SDK 0.7.0; using exec/logs API instead
 
 **Phase 4: Gate verification loop**
 - After agent says "done", sandbox runs `gates/health.sh`
