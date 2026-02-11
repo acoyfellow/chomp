@@ -1196,3 +1196,43 @@ func TestE2E_HandoffCreatesNewSession(t *testing.T) {
 		t.Fatalf("expected agent 'opencode', got %q", s.Tasks[0].Sessions[1].Agent)
 	}
 }
+
+func TestE2E_BudgetBlocksRunWhenExhausted(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create and run a task, burn all daily tokens
+	postJSON(apiAddTask, `{"prompt":"big burn"}`)
+	postJSON(apiRunTask, `{"id":"1"}`)
+	postJSON(apiUpdateTask, `{"id":"1","tokens":"1000000"}`)
+	postJSON(apiDoneTask, `{"id":"1","tokens":"1000000"}`)
+
+	// Create another task
+	postJSON(apiAddTask, `{"prompt":"should be blocked"}`)
+
+	// Try to run it — should be rejected (429)
+	w := postJSON(apiRunTask, `{"id":"2"}`)
+	if w.Code != 429 {
+		t.Fatalf("expected 429 budget exhausted, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestE2E_PerTaskBudgetFlag(t *testing.T) {
+	defer setupTest(t)()
+
+	postJSON(apiAddTask, `{"prompt":"token hog"}`)
+	postJSON(apiRunTask, `{"id":"1"}`)
+
+	// Under limit — no flag
+	postJSON(apiUpdateTask, `{"id":"1","tokens":"100000"}`)
+	s, _ := readStateUnsafe()
+	if s.Tasks[0].BudgetExceeded {
+		t.Fatal("should not be flagged under limit")
+	}
+
+	// Over limit — flag set
+	postJSON(apiUpdateTask, `{"id":"1","tokens":"300000"}`)
+	s, _ = readStateUnsafe()
+	if !s.Tasks[0].BudgetExceeded {
+		t.Fatal("should be flagged at/over 300k per-task limit")
+	}
+}

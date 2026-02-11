@@ -38,16 +38,17 @@ type Session struct {
 }
 
 type Task struct {
-	ID       string    `json:"id"`
-	Prompt   string    `json:"prompt"`
-	Dir      string    `json:"dir"`
-	Status   string    `json:"status"`
-	Created  string    `json:"created"`
-	Result   string    `json:"result"`
-	Platform string    `json:"platform"`
-	Model    string    `json:"model,omitempty"`
-	Tokens   int       `json:"tokens"`
-	Sessions []Session `json:"sessions,omitempty"`
+	ID             string `json:"id"`
+	Prompt         string `json:"prompt"`
+	Dir            string `json:"dir"`
+	Status         string `json:"status"`
+	Created        string `json:"created"`
+	Result         string `json:"result"`
+	Platform       string `json:"platform"`
+	Model          string `json:"model,omitempty"`
+	Tokens         int    `json:"tokens"`
+	BudgetExceeded bool      `json:"budget_exceeded,omitempty"`
+	Sessions       []Session `json:"sessions,omitempty"`
 }
 
 type State struct {
@@ -601,6 +602,20 @@ func apiAddTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(task)
 }
 
+// Budget constants
+const (
+	perTaskTokenLimit = 300_000 // per-task soft cap (flag, don't kill)
+)
+
+// totalBurnedTokens sums all tokens across tasks.
+func totalBurnedTokens(s *State) int {
+	total := 0
+	for _, t := range s.Tasks {
+		total += t.Tokens
+	}
+	return total
+}
+
 func apiRunTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
@@ -621,6 +636,14 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 	s, err := readStateUnsafe()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	// Budget gate: refuse to start if daily budget exhausted
+	bal := fetchBalance()
+	burned := totalBurnedTokens(s)
+	if burned >= bal.TotalDailyTokens {
+		http.Error(w, "daily token budget exhausted", 429)
 		return
 	}
 
@@ -763,6 +786,10 @@ func apiUpdateTask(w http.ResponseWriter, r *http.Request) {
 					s.Tasks[i].Tokens = tk
 					if n := len(s.Tasks[i].Sessions); n > 0 {
 						s.Tasks[i].Sessions[n-1].Tokens = tk
+					}
+					// Flag if per-task budget exceeded
+					if tk >= perTaskTokenLimit {
+						s.Tasks[i].BudgetExceeded = true
 					}
 				}
 			}
