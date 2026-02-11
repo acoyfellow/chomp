@@ -62,6 +62,22 @@ export default {
       return handleKill(env, sandboxId);
     }
 
+    // POST /exec/:sandboxId — run command in sandbox
+    if (url.pathname.startsWith('/exec/') && request.method === 'POST') {
+      const sandboxId = url.pathname.split('/').pop();
+      if (!sandboxId) return json({ error: 'missing sandbox id' }, 400);
+      return handleExec(request, env, sandboxId);
+    }
+
+    // GET /logs/:sandboxId/:processId — get process logs
+    if (url.pathname.startsWith('/logs/')) {
+      const parts = url.pathname.split('/');
+      const processId = parts.pop();
+      const sandboxId = parts.pop();
+      if (!sandboxId || !processId) return json({ error: 'missing sandbox/process id' }, 400);
+      return handleLogs(env, sandboxId, processId);
+    }
+
     // Health check
     if (url.pathname === '/health') {
       return json({ status: 'ok', service: 'chomp-sandbox' });
@@ -93,7 +109,7 @@ async function handleDispatch(request: Request, env: Env): Promise<Response> {
     const workDir = dir || (repoUrl ? '/workspace/repo' : '/workspace');
 
     // Start agent in background
-    await sandbox.startProcess(
+    const process = await sandbox.startProcess(
       `run-agent "${agent}" "${model}" "${prompt.replace(/"/g, '\\"')}"`,
       {
         env: {
@@ -104,10 +120,11 @@ async function handleDispatch(request: Request, env: Env): Promise<Response> {
           REPO_DIR: workDir,
         },
         cwd: workDir,
+        processId: `agent-${taskId}`,
       }
     );
 
-    return json({ sandboxId, status: 'started', agent, model });
+    return json({ sandboxId, status: 'started', agent, model, processId: process.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     return json({ error: `dispatch failed: ${message}` }, 500);
@@ -125,6 +142,50 @@ async function handleStatus(env: Env, sandboxId: string): Promise<Response> {
     });
   } catch {
     return json({ sandboxId, alive: false, error: 'unreachable' });
+  }
+}
+
+async function handleExec(
+  request: Request,
+  env: Env,
+  sandboxId: string
+): Promise<Response> {
+  const body = await request.json() as { command: string; timeout?: number; cwd?: string };
+  if (!body.command) return json({ error: 'missing command' }, 400);
+
+  const sandbox = getSandbox(env.Sandbox, sandboxId, { keepAlive: true });
+  try {
+    const result = await sandbox.exec(body.command, {
+      timeout: body.timeout || 30000,
+      cwd: body.cwd,
+    });
+    return json({
+      sandboxId,
+      success: result.success,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'exec failed';
+    return json({ error: message }, 500);
+  }
+}
+
+async function handleLogs(
+  env: Env,
+  sandboxId: string,
+  processId: string
+): Promise<Response> {
+  const sandbox = getSandbox(env.Sandbox, sandboxId, { keepAlive: true });
+  try {
+    const proc = await sandbox.getProcess(processId);
+    if (!proc) return json({ error: 'process not found' }, 404);
+    const logs = await proc.getLogs();
+    return json({ sandboxId, processId, logs });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'logs failed';
+    return json({ error: message }, 500);
   }
 }
 
