@@ -161,10 +161,11 @@ Dashboard (Go, exe.dev :8000)       Cloudflare Edge
 - Configurable MAX_GATE_LOOPS (default 3), then marks failed
 - Deployed to Cloudflare
 
-**Phase 5: Pi adapter**
+**Phase 5: Pi adapter ✅ DONE**
 - `pi` installed in Dockerfile (`npm i -g @mariozechner/pi-coding-agent`)
 - CLI: `pi --message "prompt" --dir /workspace/repo`
-- Same dispatch protocol as other agents
+- Verified working in live sandbox (v0.52.9 installed, launches correctly)
+- API keys forwarded from Worker secrets
 
 ### Sandbox dispatch pseudocode
 
