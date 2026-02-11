@@ -34,6 +34,7 @@ type Task struct {
 	Created  string `json:"created"`
 	Result   string `json:"result"`
 	Platform string `json:"platform"`
+	Model    string `json:"model,omitempty"`
 	Tokens   int    `json:"tokens"`
 }
 
@@ -544,11 +545,9 @@ func apiAddTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
-	var body struct {
-		Prompt string `json:"prompt"`
-		Dir    string `json:"dir"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Prompt == "" {
+	fields := decodeBody(r)
+	prompt := fields["prompt"]
+	if prompt == "" {
 		http.Error(w, "need prompt", 400)
 		return
 	}
@@ -564,11 +563,13 @@ func apiAddTask(w http.ResponseWriter, r *http.Request) {
 
 	id := s.NextID
 	task := Task{
-		ID:      fmt.Sprintf("%d", id),
-		Prompt:  body.Prompt,
-		Dir:     body.Dir,
-		Status:  "queued",
-		Created: time.Now().UTC().Format(time.RFC3339),
+		ID:       fmt.Sprintf("%d", id),
+		Prompt:   prompt,
+		Dir:      fields["dir"],
+		Status:   "queued",
+		Created:  time.Now().UTC().Format(time.RFC3339),
+		Platform: fields["agent"],
+		Model:    fields["model"],
 	}
 	s.Tasks = append(s.Tasks, task)
 	s.NextID = id + 1
@@ -583,6 +584,7 @@ func apiAddTask(w http.ResponseWriter, r *http.Request) {
 	cached = nil
 	cacheMu.Unlock()
 
+	w.Header().Set("HX-Trigger", "refreshTasks")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -635,6 +637,7 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 	cached = nil
 	cacheMu.Unlock()
 
+	w.Header().Set("HX-Trigger", "refreshTasks")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -685,6 +688,7 @@ func apiDoneTask(w http.ResponseWriter, r *http.Request) {
 	cached = nil
 	cacheMu.Unlock()
 
+	w.Header().Set("HX-Trigger", "refreshTasks")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -728,6 +732,7 @@ func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
 	cached = nil
 	cacheMu.Unlock()
 
+	w.Header().Set("HX-Trigger", "refreshTasks")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -1118,11 +1123,15 @@ func partialsSettings(w http.ResponseWriter, r *http.Request) {
 		AllSet, SomeSet              bool
 		MissingCount                 int
 	}
-	type agentView struct{ Name, Color, Note string; Available bool }
+	type agentView struct {
+		ID, Name, Color, Note string
+		Available, Builtin    bool
+	}
 
+	ma, _ := mergedAgents()
 	var agents []agentView
-	for _, a := range cfg.Agents {
-		agents = append(agents, agentView{Name: a.Name, Color: a.Color, Note: a.Note, Available: a.Available})
+	for id, a := range ma {
+		agents = append(agents, agentView{ID: id, Name: a.Name, Color: a.Color, Note: a.Note, Available: a.Available, Builtin: a.Builtin})
 	}
 
 	var routers []routerView
@@ -1163,8 +1172,49 @@ func partialsSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func partialsCreate(w http.ResponseWriter, r *http.Request) {
+	step := r.URL.Query().Get("step")
+	if step == "" {
+		step = "1"
+	}
+
+	// Carry forward wizard fields from query params
+	data := map[string]interface{}{
+		"Step":   step,
+		"Prompt": r.URL.Query().Get("prompt"),
+		"Dir":    r.URL.Query().Get("dir"),
+		"Agent":  r.URL.Query().Get("agent"),
+		"Model":  r.URL.Query().Get("model"),
+	}
+
+	if step == "2" || step == "3" || step == "4" {
+		agents, _ := mergedAgents()
+		type agentItem struct {
+			ID, Name, Color, Note string
+			Available             bool
+			Models                []string
+		}
+		var agentList []agentItem
+		for id, a := range agents {
+			agentList = append(agentList, agentItem{
+				ID: id, Name: a.Name, Color: a.Color, Note: a.Note,
+				Available: a.Available, Models: a.Models,
+			})
+		}
+		data["Agents"] = agentList
+
+		// Find selected agent's models for step 3
+		if step == "3" || step == "4" {
+			agentID := r.URL.Query().Get("agent")
+			if a, ok := agents[agentID]; ok {
+				data["AgentName"] = a.Name
+				data["AgentColor"] = a.Color
+				data["Models"] = a.Models
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl.ExecuteTemplate(w, "create.html", nil)
+	tmpl.ExecuteTemplate(w, "create.html", data)
 }
 
 // buildConfig returns the config data for the settings page

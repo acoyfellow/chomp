@@ -1,23 +1,206 @@
-<div class="text-xl font-bold tracking-tight mb-4">New Task</div>
-<form hx-post="/api/tasks" hx-swap="none" class="space-y-4">
+{{if eq .Step "1"}}
+<!-- Step 1: Task details -->
+<div class="text-xl font-bold tracking-tight mb-1">New Task</div>
+<div class="text-xs text-zinc-400 mb-4">Step 1 of 4 — What needs doing?</div>
+<div class="flex gap-1 mb-5">
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+</div>
+<div class="space-y-4">
   <div>
-    <textarea name="prompt" rows="3" required placeholder="Refactor the auth module..."
+    <textarea id="wiz-prompt" rows="3" required placeholder="Refactor the auth module..."
               class="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-3 text-[15px] text-zinc-900 dark:text-zinc-100 resize-none outline-none focus:border-gold placeholder:text-zinc-400"></textarea>
   </div>
   <div>
     <label class="block text-xs font-semibold text-zinc-400 mb-1">Directory (optional)</label>
-    <input name="dir" type="text" placeholder="/home/exedev/myproject"
+    <input id="wiz-dir" type="text" placeholder="/home/exedev/myproject"
            class="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-3 text-[15px] text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
   </div>
-  <button type="submit" class="btn btn-primary w-full">Add to Queue</button>
+  <button type="button" onclick="wizNext(2)" class="btn btn-primary w-full">Next — Pick Agent</button>
   <button type="button" onclick="closeSheet('create-dialog')" class="btn btn-secondary w-full">Cancel</button>
-</form>
-
+</div>
 <script>
+function wizNext(step) {
+  const prompt = document.getElementById('wiz-prompt')?.value?.trim();
+  if (step === 2 && !prompt) { showToast('Enter a task', true); return; }
+  const dir = document.getElementById('wiz-dir')?.value?.trim() || '';
+  const params = new URLSearchParams({
+    step: step,
+    prompt: prompt || document.getElementById('create-body')?.querySelector('[data-prompt]')?.dataset.prompt || '',
+    dir: dir || document.getElementById('create-body')?.querySelector('[data-dir]')?.dataset.dir || '',
+  });
+  // Carry forward agent/model if going to step 3+
+  const agent = document.getElementById('create-body')?.querySelector('[data-agent]')?.dataset.agent || '';
+  const model = document.getElementById('create-body')?.querySelector('[data-model]')?.dataset.model || '';
+  if (agent) params.set('agent', agent);
+  if (model) params.set('model', model);
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+</script>
+
+{{else if eq .Step "2"}}
+<!-- Step 2: Pick agent -->
+<div class="text-xl font-bold tracking-tight mb-1">Pick Agent</div>
+<div class="text-xs text-zinc-400 mb-4">Step 2 of 4 — Who runs this?</div>
+<div class="flex gap-1 mb-5">
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+</div>
+<div data-prompt="{{.Prompt}}" data-dir="{{.Dir}}" class="hidden"></div>
+<div class="space-y-2 mb-4">
+  {{range .Agents}}
+  <button type="button" onclick="wizPickAgent('{{.ID}}')" 
+          class="card w-full !p-3 flex items-center gap-2.5 cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-600 active:scale-[0.98] transition-all text-left {{if not .Available}}opacity-40{{end}}"
+          {{if not .Available}}disabled{{end}}>
+    <div class="w-2.5 h-2.5 rounded-full shrink-0 {{if .Available}}bg-green-500{{else}}bg-red-500{{end}}"></div>
+    <div class="flex-1 min-w-0">
+      <div class="text-sm font-semibold" style="color:{{.Color}}">{{.Name}}</div>
+      <div class="text-[11px] text-zinc-400">{{.Note}}</div>
+    </div>
+    <div class="text-zinc-300 dark:text-zinc-600 text-sm">›</div>
+  </button>
+  {{end}}
+</div>
+<div class="flex gap-2">
+  <button type="button" onclick="wizBack(1)" class="btn btn-secondary flex-1">Back</button>
+  <button type="button" onclick="wizSkipAgent()" class="btn btn-secondary flex-1">Skip</button>
+</div>
+<script>
+function wizPickAgent(agentId) {
+  const el = document.querySelector('[data-prompt]');
+  const params = new URLSearchParams({
+    step: '3', prompt: el.dataset.prompt, dir: el.dataset.dir, agent: agentId
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+function wizSkipAgent() {
+  const el = document.querySelector('[data-prompt]');
+  const params = new URLSearchParams({
+    step: '4', prompt: el.dataset.prompt, dir: el.dataset.dir
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+function wizBack(step) {
+  const el = document.querySelector('[data-prompt]');
+  const params = new URLSearchParams({
+    step: step, prompt: el.dataset.prompt, dir: el.dataset.dir
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+</script>
+
+{{else if eq .Step "3"}}
+<!-- Step 3: Pick model -->
+<div class="text-xl font-bold tracking-tight mb-1">Pick Model</div>
+<div class="text-xs text-zinc-400 mb-4">Step 3 of 4 — Which model?</div>
+<div class="flex gap-1 mb-5">
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+</div>
+<div data-prompt="{{.Prompt}}" data-dir="{{.Dir}}" data-agent="{{.Agent}}" class="hidden"></div>
+<div class="text-xs text-zinc-400 mb-3">Models for <span class="font-semibold" {{if .AgentColor}}style="color:{{.AgentColor}}"{{end}}>{{.AgentName}}</span></div>
+<div class="space-y-2 mb-4">
+  {{range .Models}}
+  <button type="button" onclick="wizPickModel('{{.}}')" 
+          class="card w-full !p-3 flex items-center gap-2.5 cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-600 active:scale-[0.98] transition-all text-left">
+    <div class="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-600 shrink-0"></div>
+    <div class="text-sm font-medium flex-1">{{.}}</div>
+    <div class="text-zinc-300 dark:text-zinc-600 text-sm">›</div>
+  </button>
+  {{end}}
+</div>
+<div class="flex gap-2">
+  <button type="button" onclick="wizBackToAgent()" class="btn btn-secondary flex-1">Back</button>
+  <button type="button" onclick="wizSkipModel()" class="btn btn-secondary flex-1">Skip</button>
+</div>
+<script>
+function wizPickModel(model) {
+  const el = document.querySelector('[data-prompt]');
+  const params = new URLSearchParams({
+    step: '4', prompt: el.dataset.prompt, dir: el.dataset.dir,
+    agent: el.dataset.agent, model: model
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+function wizBackToAgent() {
+  const el = document.querySelector('[data-prompt]');
+  const params = new URLSearchParams({
+    step: '2', prompt: el.dataset.prompt, dir: el.dataset.dir
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+function wizSkipModel() {
+  const el = document.querySelector('[data-prompt]');
+  const params = new URLSearchParams({
+    step: '4', prompt: el.dataset.prompt, dir: el.dataset.dir,
+    agent: el.dataset.agent
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
+</script>
+
+{{else if eq .Step "4"}}
+<!-- Step 4: Review & submit -->
+<div class="text-xl font-bold tracking-tight mb-1">Review</div>
+<div class="text-xs text-zinc-400 mb-4">Step 4 of 4 — Confirm & queue</div>
+<div class="flex gap-1 mb-5">
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+  <div class="flex-1 h-1 rounded-full bg-zinc-900 dark:bg-zinc-100"></div>
+</div>
+<div class="card mb-4 space-y-3">
+  <div>
+    <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Task</div>
+    <div class="text-[15px] font-medium mt-0.5">{{.Prompt}}</div>
+  </div>
+  {{if .Dir}}
+  <div>
+    <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Directory</div>
+    <div class="text-sm font-mono text-zinc-500 mt-0.5">{{.Dir}}</div>
+  </div>
+  {{end}}
+  {{if .AgentName}}
+  <div>
+    <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Agent</div>
+    <div class="text-sm font-semibold mt-0.5" style="color:{{.AgentColor}}">{{.AgentName}}</div>
+  </div>
+  {{end}}
+  {{if .Model}}
+  <div>
+    <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Model</div>
+    <div class="text-sm font-medium mt-0.5">{{.Model}}</div>
+  </div>
+  {{end}}
+</div>
+<form hx-post="/api/tasks" hx-swap="none" class="space-y-2">
+  <input type="hidden" name="prompt" value="{{.Prompt}}">
+  <input type="hidden" name="dir" value="{{.Dir}}">
+  <input type="hidden" name="agent" value="{{.Agent}}">
+  <input type="hidden" name="model" value="{{.Model}}">
+  <button type="submit" class="btn btn-primary w-full">Add to Queue</button>
+  <button type="button" onclick="wizBackToReview()" class="btn btn-secondary w-full">Back</button>
+</form>
+<script>
+function wizBackToReview() {
+  const params = new URLSearchParams({
+    step: '{{if .Agent}}3{{else}}1{{end}}',
+    prompt: '{{.Prompt}}', dir: '{{.Dir}}', agent: '{{.Agent}}'
+  });
+  htmx.ajax('GET', '/partials/create?' + params.toString(), '#create-body');
+}
 document.body.addEventListener('htmx:afterRequest', function(e) {
   if (e.detail.pathInfo.requestPath === '/api/tasks' && e.detail.successful) {
     closeSheet('create-dialog');
-    showToast('Task added');
+    showToast('Task queued');
   }
 });
 </script>
+
+{{end}}

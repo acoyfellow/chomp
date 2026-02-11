@@ -1,7 +1,31 @@
 <div class="text-xl font-bold tracking-tight mb-1">Settings</div>
 <div class="text-sm text-zinc-400 mb-5">{{.KeysSet}} of {{.KeysTotal}} keys configured</div>
 
-<div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Agents</div>
+<div class="flex items-center justify-between mb-2">
+  <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Agents</div>
+  <button onclick="toggleAddAgent()" id="add-agent-toggle" class="text-[11px] font-semibold text-gold cursor-pointer hover:underline">+ Add</button>
+</div>
+
+<div id="add-agent-form" class="card mb-2.5 hidden">
+  <div class="text-sm font-semibold mb-2">Install Agent</div>
+  <div class="space-y-2">
+    <input id="agent-id" type="text" placeholder="my-agent" 
+           class="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
+    <input id="agent-name" type="text" placeholder="Display Name"
+           class="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
+    <input id="agent-command" type="text" placeholder="Command (e.g. my-agent-cli)"
+           class="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
+    <input id="agent-models" type="text" placeholder="Models (comma-separated)"
+           class="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 text-sm text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
+    <input id="agent-color" type="text" placeholder="Color (#hex)" value="#888888"
+           class="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 text-sm font-mono text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
+    <div class="flex gap-2">
+      <button onclick="saveAgent()" class="flex-1 py-2 bg-green-500 text-white rounded-lg text-xs font-semibold cursor-pointer active:scale-95 transition-all">Install</button>
+      <button onclick="toggleAddAgent()" class="flex-1 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-400 cursor-pointer active:scale-95 transition-all">Cancel</button>
+    </div>
+  </div>
+</div>
+
 {{range .Agents}}
 <div class="card mb-1.5 !p-3 flex items-center gap-2.5">
   <div class="w-2.5 h-2.5 rounded-full shrink-0 {{if .Available}}bg-green-500{{else}}bg-red-500{{end}}"></div>
@@ -9,6 +33,9 @@
     <div class="text-sm font-semibold" style="color:{{.Color}}">{{.Name}}</div>
     <div class="text-[11px] text-zinc-400">{{.Note}}</div>
   </div>
+  {{if not .Builtin}}
+  <button onclick="removeAgent('{{.ID}}')" class="w-7 h-7 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 flex items-center justify-center text-[11px] text-zinc-400 cursor-pointer hover:text-red-500 hover:border-red-500 active:scale-90 transition-all shrink-0" title="Remove">✕</button>
+  {{end}}
   <div class="text-[10px] font-semibold px-2 py-0.5 rounded-md {{if .Available}}text-green-500 bg-green-500/10{{else}}text-red-500 bg-red-500/10{{end}}">{{if .Available}}Ready{{else}}Missing{{end}}</div>
 </div>
 {{end}}
@@ -40,6 +67,42 @@
 <button onclick="closeSheet('settings-dialog')" class="btn btn-secondary w-full mt-4">Done</button>
 
 <script>
+function toggleAddAgent() {
+  const form = document.getElementById('add-agent-form');
+  form.classList.toggle('hidden');
+}
+
+async function saveAgent() {
+  const id = document.getElementById('agent-id')?.value?.trim();
+  const name = document.getElementById('agent-name')?.value?.trim();
+  const command = document.getElementById('agent-command')?.value?.trim();
+  const modelsStr = document.getElementById('agent-models')?.value?.trim();
+  const color = document.getElementById('agent-color')?.value?.trim();
+  if (!id || !name) { showToast('ID and name required', true); return; }
+  const models = modelsStr ? modelsStr.split(',').map(m => m.trim()).filter(Boolean) : [];
+  try {
+    const res = await fetch('/api/config/agents', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({id, name, command, models, color})
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Agent installed');
+    htmx.trigger(document.body, 'open-settings');
+  } catch(e) { showToast('Failed: ' + e.message, true); }
+}
+
+async function removeAgent(id) {
+  try {
+    const res = await fetch('/api/config/agents', {
+      method: 'DELETE', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({id})
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Agent removed');
+    htmx.trigger(document.body, 'open-settings');
+  } catch(e) { showToast('Failed: ' + e.message, true); }
+}
+
 function editKey(envVar, name) {
   const row = document.getElementById('key-row-' + envVar);
   row.innerHTML = `
@@ -65,7 +128,6 @@ async function saveKey(envVar) {
 }
 
 async function deleteKey(envVar, name) {
-  if (!confirm('Delete ' + name + '?')) return;
   try {
     const res = await fetch('/api/config/keys', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:envVar,value:''}) });
     if (!res.ok) throw new Error(await res.text());

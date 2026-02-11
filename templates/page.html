@@ -27,7 +27,7 @@
 
   <!-- Content -->
   <div id="content" class="flex-1 px-4 pb-4 overflow-y-auto"
-       hx-get="/partials/tasks?tab=active" hx-trigger="load, every 3s" hx-swap="innerHTML">
+       hx-get="/partials/tasks?tab=active" hx-trigger="load, every 3s, refreshTasks from:body" hx-swap="innerHTML">
   </div>
 
   <!-- New task button -->
