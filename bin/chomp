@@ -230,11 +230,32 @@ cmd_done() {
 
   local state
   state=$(read_state)
+
+  # Read task info for git trailer
+  local platform model task_dir
+  platform=$(echo "$state" | jq -r --arg id "$id" '.tasks[] | select(.id == $id) | .platform // empty')
+  model=$(echo "$state" | jq -r --arg id "$id" '.tasks[] | select(.id == $id) | .model // empty')
+  task_dir=$(echo "$state" | jq -r --arg id "$id" '.tasks[] | select(.id == $id) | .dir // empty')
+
   echo "$state" | jq \
     --arg id "$id" \
     --arg result "$summary" \
     --argjson tokens "${tokens}" \
     '(.tasks[] | select(.id == $id)) |= (.status = "done" | .result = $result | .tokens = $tokens)' | write_state
+
+  # Stamp last git commit with agent/model trailer
+  if [ -n "$platform" ] && [ -n "$task_dir" ] && [ -d "$task_dir/.git" ]; then
+    local trailer="Agent: ${platform}"
+    [ -n "$model" ] && trailer="${trailer}/${model}"
+    (
+      cd "$task_dir"
+      local last_msg
+      last_msg=$(git log -1 --format='%B' 2>/dev/null || true)
+      if [ -n "$last_msg" ] && ! echo "$last_msg" | grep -q "^Agent:"; then
+        git commit --amend --no-edit --trailer "$trailer" 2>/dev/null || true
+      fi
+    )
+  fi
 
   echo "Task #$id done."
 }
