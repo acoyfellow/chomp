@@ -44,7 +44,7 @@
       </div>
       <button hx-post="/api/tasks/run" hx-vals='{"id":"{{.ID}}"}' hx-swap="none"
               class="w-9 h-9 rounded-xl border border-green-500 text-green-500 flex items-center justify-center text-sm font-bold cursor-pointer hover:bg-green-500 hover:text-white active:scale-90 transition-all shrink-0">▶</button>
-      <button hx-post="/api/tasks/delete" hx-vals='{"id":"{{.ID}}"}' hx-swap="none" hx-confirm="Delete this task?"
+      <button hx-post="/api/tasks/delete" hx-vals='{"id":"{{.ID}}"}' hx-swap="none"
               class="w-9 h-9 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-400 flex items-center justify-center text-sm cursor-pointer hover:text-red-500 hover:border-red-500 active:scale-90 transition-all shrink-0">✕</button>
     </div>
   </div>

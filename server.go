@@ -522,6 +522,23 @@ func apiState(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s)
 }
 
+// decodeBody reads JSON or form-encoded POST body into dst (a map).
+func decodeBody(r *http.Request) map[string]string {
+	m := make(map[string]string)
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		json.NewDecoder(r.Body).Decode(&m)
+	} else {
+		r.ParseForm()
+		for k, v := range r.PostForm {
+			if len(v) > 0 {
+				m[k] = v[0]
+			}
+		}
+	}
+	return m
+}
+
 func apiAddTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
@@ -575,15 +592,14 @@ func apiRunTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
-	var body struct {
-		ID       string `json:"id"`
-		Agent    string `json:"agent"`
-		Router   string `json:"router"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+	fields := decodeBody(r)
+	if fields["id"] == "" {
 		http.Error(w, "need id", 400)
 		return
 	}
+	body := struct {
+		ID, Agent, Router string
+	}{ID: fields["id"], Agent: fields["agent"], Router: fields["router"]}
 
 	stateMu.Lock()
 	defer stateMu.Unlock()
@@ -678,13 +694,13 @@ func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", 405)
 		return
 	}
-	var body struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+	fields := decodeBody(r)
+	id := fields["id"]
+	if id == "" {
 		http.Error(w, "need id", 400)
 		return
 	}
+	body := struct{ ID string }{ID: id}
 
 	stateMu.Lock()
 	defer stateMu.Unlock()
@@ -719,183 +735,147 @@ func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
 // --------------- Balance endpoint ---------------
 
 type ProviderBalance struct {
-	ID         string      `json:"id"`
-	Name       string      `json:"name"`
-	Color      string      `json:"color"`
-	Configured bool        `json:"configured"`
-	Balance    interface{} `json:"balance"`
-	Note       string      `json:"note,omitempty"`
-	Error      string      `json:"error,omitempty"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Color       string  `json:"color"`
+	Configured  bool    `json:"configured"`
+	DailyTokens int     `json:"daily_tokens"`
+	DailyUSD    float64 `json:"daily_usd"`
+	Source      string  `json:"source"`
+	Note        string  `json:"note,omitempty"`
+	Error       string  `json:"error,omitempty"`
 }
 
 type BalanceResponse struct {
-	TotalCreditsUSD float64           `json:"total_credits_usd"`
-	Providers       []ProviderBalance `json:"providers"`
-	CheckedAt       string            `json:"checked_at"`
+	TotalDailyTokens int               `json:"total_daily_tokens"`
+	TotalDailyUSD    float64           `json:"total_daily_usd"`
+	Providers        []ProviderBalance `json:"providers"`
+	CheckedAt        string            `json:"checked_at"`
 }
 
-type OpenRouterBalance struct {
-	CreditsUSD float64  `json:"credits_usd"`
-	UsedUSD    float64  `json:"used_usd"`
-	LimitUSD   float64  `json:"limit_usd"`
-	FreeModels []string `json:"free_models"`
-}
-
-type CloudflareBalance struct {
-	NeuronsRemaining int    `json:"neurons_remaining"`
-	NeuronsLimit     int    `json:"neurons_limit"`
-	NeuronsUsed      int    `json:"neurons_used"`
-	Reset            string `json:"reset"`
-}
-
-func fetchOpenRouterBalance(apiKey string) (interface{}, float64, error) {
+// fetchOpenRouterCredits returns the remaining credits in USD for the given API key.
+func fetchOpenRouterCredits(apiKey string) (float64, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// Fetch key info
 	req, err := http.NewRequest("GET", "https://openrouter.ai/api/v1/auth/key", nil)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("auth/key request failed: %w", err)
+		return 0, fmt.Errorf("auth/key request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("reading auth/key response: %w", err)
+		return 0, fmt.Errorf("reading auth/key response: %w", err)
 	}
 	if resp.StatusCode != 200 {
-		return nil, 0, fmt.Errorf("auth/key returned %d: %s", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("auth/key returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var keyResp struct {
 		Data struct {
-			Usage          float64 `json:"usage"`
-			Limit          float64 `json:"limit"`
 			LimitRemaining float64 `json:"limit_remaining"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &keyResp); err != nil {
-		return nil, 0, fmt.Errorf("parsing auth/key: %w", err)
+		return 0, fmt.Errorf("parsing auth/key: %w", err)
 	}
 
-	// Fetch free models
-	var freeModels []string
-	modReq, err := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
-	if err == nil {
-		modResp, err := client.Do(modReq)
-		if err == nil {
-			defer modResp.Body.Close()
-			modBody, err := io.ReadAll(modResp.Body)
-			if err == nil && modResp.StatusCode == 200 {
-				var modelsResp struct {
-					Data []struct {
-						ID      string `json:"id"`
-						Pricing struct {
-							Prompt string `json:"prompt"`
-						} `json:"pricing"`
-					} `json:"data"`
-				}
-				if json.Unmarshal(modBody, &modelsResp) == nil {
-					for _, m := range modelsResp.Data {
-						if m.Pricing.Prompt == "0" {
-							freeModels = append(freeModels, m.ID)
-							if len(freeModels) >= 10 {
-								break
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	if freeModels == nil {
-		freeModels = []string{}
-	}
-
-	bal := OpenRouterBalance{
-		CreditsUSD: keyResp.Data.LimitRemaining,
-		UsedUSD:    keyResp.Data.Usage,
-		LimitUSD:   keyResp.Data.Limit,
-		FreeModels: freeModels,
-	}
-	return bal, bal.CreditsUSD, nil
+	return keyResp.Data.LimitRemaining, nil
 }
 
 func fetchBalance() *BalanceResponse {
 	var providers []ProviderBalance
+	var totalTokens int
 	var totalUSD float64
 
-	// --- OpenRouter ---
-	orKey := os.Getenv("OPENROUTER_API_KEY")
-	if orKey != "" {
-		p := ProviderBalance{
-			ID:         "openrouter",
-			Name:       "OpenRouter",
-			Color:      "#7C3AED",
-			Configured: true,
-		}
-		bal, credits, err := fetchOpenRouterBalance(orKey)
-		if err != nil {
-			p.Error = err.Error()
-		} else {
-			p.Balance = bal
-			totalUSD += credits
-		}
-		providers = append(providers, p)
-	} else {
-		providers = append(providers, ProviderBalance{
-			ID:         "openrouter",
-			Name:       "OpenRouter",
-			Color:      "#7C3AED",
-			Configured: false,
-		})
+	// --- Shelley (exe.dev) — always configured ---
+	shelley := ProviderBalance{
+		ID:          "shelley",
+		Name:        "Shelley (exe.dev)",
+		Color:       "#C8A630",
+		Configured:  true,
+		DailyTokens: 1_000_000,
+		DailyUSD:    3.00,
+		Source:      "Claude Sonnet 4 via exe.dev runtime",
 	}
+	providers = append(providers, shelley)
+	totalTokens += shelley.DailyTokens
+	totalUSD += shelley.DailyUSD
 
 	// --- Cloudflare Workers AI ---
 	cfToken := os.Getenv("CLOUDFLARE_API_TOKEN")
 	cfAccount := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
-	if cfToken != "" && cfAccount != "" {
-		providers = append(providers, ProviderBalance{
-			ID:         "cloudflare",
-			Name:       "Cloudflare AI",
-			Color:      "#D96F0E",
-			Configured: true,
-			Balance: CloudflareBalance{
-				NeuronsRemaining: 10000,
-				NeuronsLimit:     10000,
-				NeuronsUsed:      0,
-				Reset:            "daily",
-			},
-			Note: "10k neurons/day free tier",
-		})
-	} else {
-		providers = append(providers, ProviderBalance{
-			ID:         "cloudflare",
-			Name:       "Cloudflare AI",
-			Color:      "#D96F0E",
-			Configured: false,
-		})
+	cfConfigured := cfToken != "" && cfAccount != ""
+	cf := ProviderBalance{
+		ID:         "cloudflare",
+		Name:       "Cloudflare AI",
+		Color:      "#D96F0E",
+		Configured: cfConfigured,
+		Source:     "10,000 neurons/day free tier (developers.cloudflare.com/workers-ai/platform/pricing)",
 	}
+	if cfConfigured {
+		cf.DailyTokens = 10_000
+		cf.DailyUSD = 0.03
+		totalTokens += cf.DailyTokens
+		totalUSD += cf.DailyUSD
+	}
+	providers = append(providers, cf)
 
-	// --- Anthropic/Shelley (always present) ---
-	providers = append(providers, ProviderBalance{
-		ID:         "anthropic",
-		Name:       "Anthropic (Shelley)",
-		Color:      "#C8A630",
-		Configured: true,
-		Balance:    nil,
-		Note:       "Managed by exe.dev runtime",
-	})
+	// --- OpenRouter ---
+	orKey := os.Getenv("OPENROUTER_API_KEY")
+	orConfigured := orKey != ""
+	or := ProviderBalance{
+		ID:         "openrouter",
+		Name:       "OpenRouter",
+		Color:      "#7C3AED",
+		Configured: orConfigured,
+		Source:     "Free models (Llama 3, Gemma) rate-limited to ~200 req/day",
+	}
+	if orConfigured {
+		or.DailyTokens = 800_000
+		or.DailyUSD = 0.24
+		totalTokens += or.DailyTokens
+		totalUSD += or.DailyUSD
+
+		// Check for real credits (additive to daily budget)
+		credits, err := fetchOpenRouterCredits(orKey)
+		if err != nil {
+			or.Error = err.Error()
+		} else if credits > 0.001 {
+			or.Note = fmt.Sprintf("Plus $%.2f in credits", credits)
+		}
+	}
+	providers = append(providers, or)
+
+	// --- OpenCode Zen ---
+	zenKey := os.Getenv("OPENCODE_ZEN_API_KEY")
+	zenConfigured := zenKey != ""
+	zen := ProviderBalance{
+		ID:         "opencode",
+		Name:       "OpenCode Zen",
+		Color:      "#10B981",
+		Configured: zenConfigured,
+		Source:     "OpenCode Zen tier allocation",
+	}
+	if zenConfigured {
+		zen.DailyTokens = 500_000
+		zen.DailyUSD = 1.50
+		totalTokens += zen.DailyTokens
+		totalUSD += zen.DailyUSD
+	}
+	providers = append(providers, zen)
 
 	return &BalanceResponse{
-		TotalCreditsUSD: totalUSD,
-		Providers:       providers,
-		CheckedAt:       time.Now().UTC().Format(time.RFC3339),
+		TotalDailyTokens: totalTokens,
+		TotalDailyUSD:    totalUSD,
+		Providers:        providers,
+		CheckedAt:        time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -1025,32 +1005,29 @@ func partialsBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type provData struct {
-		Name       string
-		Color      string
-		Configured bool
-		ValueStr   string
+		Name, Color, TokensStr, USDStr string
+		Configured                     bool
 	}
 	var providers []provData
+	configured := 0
 	for _, p := range bal.Providers {
 		pd := provData{Name: p.Name, Color: p.Color, Configured: p.Configured}
-		if p.Balance != nil {
-			if orb, ok := p.Balance.(*OpenRouterBalance); ok {
-				pd.ValueStr = fmt.Sprintf("$%.2f", orb.CreditsUSD)
-			} else if cfb, ok := p.Balance.(*CloudflareBalance); ok {
-				pd.ValueStr = fmtTokens(cfb.NeuronsRemaining) + " neurons"
-			}
+		if p.Configured {
+			configured++
+			pd.TokensStr = fmtTokens(p.DailyTokens)
+			pd.USDStr = fmt.Sprintf("%.2f", p.DailyUSD)
 		}
 		providers = append(providers, pd)
 	}
 
-	dollars := int(bal.TotalCreditsUSD)
-	cents := fmt.Sprintf("%02d", int(math.Round((bal.TotalCreditsUSD-float64(dollars))*100)))
+	dollars := int(bal.TotalDailyUSD)
+	cents := fmt.Sprintf("%02d", int(math.Round((bal.TotalDailyUSD-float64(dollars))*100)))
 
 	data := map[string]interface{}{
-		"TotalCredits":    bal.TotalCreditsUSD,
 		"Dollars":         dollars,
 		"Cents":           cents,
-		"ConfiguredCount": len(bal.Providers) - func() int { c := 0; for _, p := range bal.Providers { if !p.Configured { c++ } }; return c }(),
+		"TotalTokensStr":  fmtTokens(bal.TotalDailyTokens),
+		"ConfiguredCount": configured,
 		"Providers":       providers,
 		"Live":            live,
 		"TotalTasks":      totalTasks,

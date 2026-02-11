@@ -40,7 +40,7 @@
 </div>
 
 <div class="flex gap-2">
-  <button hx-post="/api/tasks/delete" hx-vals='{"id":"{{.ID}}"}' hx-swap="none" hx-confirm="Delete this task?"
+  <button hx-post="/api/tasks/delete" hx-vals='{"id":"{{.ID}}"}' hx-swap="none"
           class="btn btn-danger flex-1">Delete Task</button>
   <button onclick="closeSheet('detail-dialog')" class="btn btn-secondary flex-1">Close</button>
 </div>
