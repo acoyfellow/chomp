@@ -66,10 +66,10 @@ docker run -d --name chomp --restart unless-stopped -p 8000:8001 -v /home/exedev
 | POST | /api/tasks/delete | Delete task |
 
 ## What to work on next
-1. **Delete waiting tasks doesn't refresh UI** — HTMX `hx-swap="none"` means no DOM update after delete. Need to either swap the parent or trigger a refresh. Add `hx-on::after-request` to reload the task list.
-2. **Old `dashboard/` directory** — can be deleted, no longer served. All rendering is templates now.
-3. **Settings: agent install/BYO UI** — the API supports custom agents but the settings template doesn't have the "Add Agent" form yet.
-4. **Create task wizard** — currently simplified to just prompt+dir. The old vanilla JS had a 4-step wizard (task→agent→gateway→model). Rebuild as multi-step HTMX partials.
+1. ~~**Delete waiting tasks doesn't refresh UI**~~ ✅ Fixed — server sends `HX-Trigger: refreshTasks`, content div listens.
+2. ~~**Old `dashboard/` directory**~~ ✅ Deleted.
+3. ~~**Settings: agent install/BYO UI**~~ ✅ Added — install form + remove button for custom agents.
+4. ~~**Create task wizard**~~ ✅ Rebuilt as 4-step HTMX wizard (prompt→agent→model→review).
 5. **Session tracking** — detail sheet says "No session history yet". Wire to real agent session data.
 6. **Gateproof integration** — tasks with gate files, verification loops.
 

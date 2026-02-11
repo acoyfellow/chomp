@@ -12,14 +12,15 @@ chomp/
 ├─ adapters/             # Platform dispatch scripts
 │  ├─ exedev.sh          # exe.dev / Shelley worker loops
 │  └─ opencode.sh        # OpenCode CLI
-├─ dashboard/            # Web dashboard (static HTML/CSS/JS)
-│  ├─ index.html
-│  ├─ style.css
-│  ├─ data.js            # Agent/router config + API fetch
-│  └─ app.js             # Render logic, sheets, pickers
-├─ server.go             # Go server: static files + /api/state
-├─ chomp-dashboard.service  # systemd unit
-├─ state.json            # Task state (gitignored, runtime only)
+├─ templates/            # Go html/template files
+│  ├─ layout.html        # Base HTML (Sora font, HTMX, Tailwind)
+│  ├─ page.html          # App shell (topbar, balance, tabs, sheets, JS)
+│  └─ partials/          # HTMX fragments
+├─ static/               # Tailwind input/output CSS
+├─ server.go             # Go server (~1300 lines): API + template handlers
+├─ server_test.go        # 38+ tests
+├─ Dockerfile            # Multi-stage Go build
+├─ state/                # Runtime: state.json, keys.json, agents.json (gitignored)
 └─ README.md
 ```
 
