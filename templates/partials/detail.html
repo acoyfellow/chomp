@@ -1,0 +1,46 @@
+<div class="flex items-center gap-2 mb-3">
+  <div class="badge text-green-600 bg-green-500/10">
+    <span class="inline-block w-2.5 h-2.5 border-2 border-green-600 border-t-transparent rounded-full animate-spin-slow align-middle mr-1"></span>
+    Running
+  </div>
+  <div class="text-xs text-zinc-400 ml-auto tabular-nums">{{.Elapsed}}</div>
+</div>
+{{if .Stale}}<div class="text-xs text-orange-500 font-medium mb-2">⚠ No progress in 5+ min</div>{{end}}
+
+<div class="text-xl font-bold tracking-tight mb-1">{{.Prompt}}</div>
+{{if .Dir}}<div class="text-xs text-zinc-400 break-all mb-4">{{.Dir}}</div>{{end}}
+
+<div class="grid grid-cols-2 gap-px bg-zinc-200 dark:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden my-4">
+  <div class="bg-white dark:bg-zinc-900 p-3">
+    <div class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-0.5">Agent</div>
+    <div class="text-[15px] font-semibold" style="color:{{.AgentColor}}">{{.AgentName}}</div>
+  </div>
+  <div class="bg-white dark:bg-zinc-900 p-3">
+    <div class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-0.5">Started</div>
+    <div class="text-[15px] font-semibold">{{.StartedStr}}</div>
+  </div>
+  <div class="bg-white dark:bg-zinc-900 p-3">
+    <div class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-0.5">Tokens</div>
+    <div class="text-[15px] font-semibold">{{.TokensStr}}</div>
+  </div>
+  <div class="bg-white dark:bg-zinc-900 p-3">
+    <div class="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-0.5">Sessions</div>
+    <div class="text-[15px] font-semibold">—</div>
+  </div>
+</div>
+
+<div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Activity</div>
+<div class="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden mb-4">
+  <div class="p-5 text-center text-sm text-zinc-400">No session history yet</div>
+</div>
+
+<div class="flex items-center gap-2.5 p-3.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl mb-4">
+  <span class="inline-block w-3.5 h-3.5 border-2 border-green-600 border-t-transparent rounded-full animate-spin-slow shrink-0"></span>
+  <span class="text-sm text-zinc-500">Agent is working...</span>
+</div>
+
+<div class="flex gap-2">
+  <button hx-post="/api/tasks/delete" hx-vals='{"id":"{{.ID}}"}' hx-swap="none" hx-confirm="Delete this task?"
+          class="btn btn-danger flex-1">Delete Task</button>
+  <button onclick="closeSheet('detail-dialog')" class="btn btn-secondary flex-1">Close</button>
+</div>

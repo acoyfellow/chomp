@@ -1,0 +1,31 @@
+<div class="flex items-center justify-between mb-3">
+  <div class="text-[11px] uppercase tracking-widest opacity-50 font-semibold">Available Balance</div>
+  <div class="text-sm opacity-40">›</div>
+</div>
+<div class="text-4xl font-bold tracking-tight leading-none mb-1">
+  {{if gt .TotalCredits 0.0}}${{.Dollars}}<span class="text-xl opacity-60">.{{.Cents}}</span>{{else}}$0<span class="text-xl opacity-60">.00</span>{{end}}
+</div>
+<div class="text-xs opacity-50 mb-4">{{.ConfiguredCount}} provider{{if ne .ConfiguredCount 1}}s{{end}} connected</div>
+<div class="flex gap-2 flex-wrap">
+  {{range .Providers}}
+  <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/10 text-xs font-medium {{if not .Configured}}opacity-35{{end}}">
+    <div class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{{.Color}}"></div>
+    <span class="opacity-80">{{.Name}}</span>
+    {{if .ValueStr}}<span class="font-bold">{{.ValueStr}}</span>{{end}}
+  </div>
+  {{end}}
+</div>
+<div class="flex gap-px mt-4 bg-white/[0.08] rounded-xl overflow-hidden">
+  <div class="flex-1 py-2.5 px-2 text-center bg-white/[0.04]">
+    <div class="text-base font-bold tracking-tight">{{if gt .Live 0}}<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1 animate-pulse-slow"></span>{{end}}{{.Live}}</div>
+    <div class="text-[10px] opacity-50 mt-0.5 uppercase tracking-wider">Live</div>
+  </div>
+  <div class="flex-1 py-2.5 px-2 text-center bg-white/[0.04]">
+    <div class="text-base font-bold tracking-tight">{{.TotalTasks}}</div>
+    <div class="text-[10px] opacity-50 mt-0.5 uppercase tracking-wider">Tasks</div>
+  </div>
+  <div class="flex-1 py-2.5 px-2 text-center bg-white/[0.04]">
+    <div class="text-base font-bold tracking-tight">{{.BurnedStr}}</div>
+    <div class="text-[10px] opacity-50 mt-0.5 uppercase tracking-wider">Burned</div>
+  </div>
+</div>

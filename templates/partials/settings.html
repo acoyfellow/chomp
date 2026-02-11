@@ -1,0 +1,76 @@
+<div class="text-xl font-bold tracking-tight mb-1">Settings</div>
+<div class="text-sm text-zinc-400 mb-5">{{.KeysSet}} of {{.KeysTotal}} keys configured</div>
+
+<div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Agents</div>
+{{range .Agents}}
+<div class="card mb-1.5 !p-3 flex items-center gap-2.5">
+  <div class="w-2.5 h-2.5 rounded-full shrink-0 {{if .Available}}bg-green-500{{else}}bg-red-500{{end}}"></div>
+  <div class="flex-1 min-w-0">
+    <div class="text-sm font-semibold" style="color:{{.Color}}">{{.Name}}</div>
+    <div class="text-[11px] text-zinc-400">{{.Note}}</div>
+  </div>
+  <div class="text-[10px] font-semibold px-2 py-0.5 rounded-md {{if .Available}}text-green-500 bg-green-500/10{{else}}text-red-500 bg-red-500/10{{end}}">{{if .Available}}Ready{{else}}Missing{{end}}</div>
+</div>
+{{end}}
+
+<div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest mt-5 mb-2">API Keys</div>
+{{range .Routers}}
+<div class="card mb-1.5 !p-0 overflow-hidden">
+  <div class="flex items-center gap-2.5 p-3">
+    <div class="w-2.5 h-2.5 rounded-full shrink-0 {{if .AllSet}}bg-green-500{{else if .SomeSet}}bg-orange-500{{else}}bg-red-500{{end}}"></div>
+    <div class="flex-1 text-sm font-semibold" style="color:{{.Color}}">{{.Name}}</div>
+    <div class="text-[10px] font-semibold px-2 py-0.5 rounded-md {{if .AllSet}}text-green-500 bg-green-500/10{{else}}text-red-500 bg-red-500/10{{end}}">{{if .AllSet}}Ready{{else}}{{.MissingCount}} missing{{end}}</div>
+  </div>
+  {{range .Keys}}
+  <div class="flex items-center gap-2 px-3 py-2 border-t border-zinc-100 dark:border-zinc-800 ml-5" id="key-row-{{.EnvVar}}">
+    <div class="text-xs text-zinc-500 font-medium flex-1">{{.Name}}</div>
+    {{if .Set}}
+      <div class="text-[11px] font-mono text-zinc-400">{{.Preview}}</div>
+      <button onclick="editKey('{{.EnvVar}}','{{.Name}}')" class="w-7 h-7 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 flex items-center justify-center text-[11px] text-zinc-400 cursor-pointer hover:text-blue-500 hover:border-blue-500 active:scale-90 transition-all shrink-0" title="Replace">✎</button>
+      <button onclick="deleteKey('{{.EnvVar}}','{{.Name}}')" class="w-7 h-7 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 flex items-center justify-center text-[11px] text-zinc-400 cursor-pointer hover:text-red-500 hover:border-red-500 active:scale-90 transition-all shrink-0" title="Delete">✕</button>
+    {{else}}
+      <div class="text-[11px] font-mono text-zinc-400/50 italic">{{.EnvVar}}</div>
+      <button onclick="editKey('{{.EnvVar}}','{{.Name}}')" class="w-7 h-7 rounded-md border border-green-500 text-green-500 flex items-center justify-center text-base font-bold cursor-pointer hover:bg-green-500 hover:text-white active:scale-90 transition-all shrink-0">+</button>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<button onclick="closeSheet('settings-dialog')" class="btn btn-secondary w-full mt-4">Done</button>
+
+<script>
+function editKey(envVar, name) {
+  const row = document.getElementById('key-row-' + envVar);
+  row.innerHTML = `
+    <div class="text-xs text-zinc-500 font-medium">${name}</div>
+    <div class="flex gap-1.5 items-center flex-1">
+      <input type="text" id="key-input-${envVar}" placeholder="Paste key..." autocomplete="off" spellcheck="false"
+             class="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md px-2.5 py-1.5 font-mono text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold">
+      <button onclick="saveKey('${envVar}')" class="px-3 py-1.5 bg-green-500 text-white rounded-md text-xs font-semibold cursor-pointer active:scale-95 transition-all">Save</button>
+      <button onclick="htmx.trigger(document.body,'open-settings')" class="px-2 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-md text-xs text-zinc-400 cursor-pointer active:scale-95 transition-all">✕</button>
+    </div>`;
+  setTimeout(() => document.getElementById('key-input-' + envVar)?.focus(), 50);
+}
+
+async function saveKey(envVar) {
+  const val = document.getElementById('key-input-' + envVar)?.value?.trim();
+  if (!val) { showToast('Key cannot be empty', true); return; }
+  try {
+    const res = await fetch('/api/config/keys', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:envVar,value:val}) });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Key saved');
+    htmx.trigger(document.body, 'open-settings');
+  } catch(e) { showToast('Save failed: ' + e.message, true); }
+}
+
+async function deleteKey(envVar, name) {
+  if (!confirm('Delete ' + name + '?')) return;
+  try {
+    const res = await fetch('/api/config/keys', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:envVar,value:''}) });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Key removed');
+    htmx.trigger(document.body, 'open-settings');
+  } catch(e) { showToast('Delete failed: ' + e.message, true); }
+}
+</script>

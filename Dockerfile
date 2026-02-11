@@ -1,12 +1,13 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY go.mod server.go ./
+COPY templates/ templates/
+COPY static/style.css static/style.css
 RUN go build -o /chomp-server server.go
 
 FROM alpine:3.19
 RUN apk add --no-cache bash jq
 COPY --from=build /chomp-server /usr/local/bin/chomp-server
-COPY dashboard/ /app/dashboard/
 COPY bin/chomp /usr/local/bin/chomp
 RUN chmod +x /usr/local/bin/chomp
 WORKDIR /app

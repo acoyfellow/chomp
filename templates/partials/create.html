@@ -1,0 +1,23 @@
+<div class="text-xl font-bold tracking-tight mb-4">New Task</div>
+<form hx-post="/api/tasks" hx-swap="none" class="space-y-4">
+  <div>
+    <textarea name="prompt" rows="3" required placeholder="Refactor the auth module..."
+              class="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-3 text-[15px] text-zinc-900 dark:text-zinc-100 resize-none outline-none focus:border-gold placeholder:text-zinc-400"></textarea>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-zinc-400 mb-1">Directory (optional)</label>
+    <input name="dir" type="text" placeholder="/home/exedev/myproject"
+           class="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-3 text-[15px] text-zinc-900 dark:text-zinc-100 outline-none focus:border-gold placeholder:text-zinc-400">
+  </div>
+  <button type="submit" class="btn btn-primary w-full">Add to Queue</button>
+  <button type="button" onclick="closeSheet('create-dialog')" class="btn btn-secondary w-full">Cancel</button>
+</form>
+
+<script>
+document.body.addEventListener('htmx:afterRequest', function(e) {
+  if (e.detail.pathInfo.requestPath === '/api/tasks' && e.detail.successful) {
+    closeSheet('create-dialog');
+    showToast('Task added');
+  }
+});
+</script>

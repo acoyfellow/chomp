@@ -1,18 +1,30 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
+
+//go:embed templates/*.html templates/partials/*.html
+var templateFS embed.FS
+
+//go:embed static/style.css
+var staticCSS []byte
+
+var tmpl *template.Template
 
 type Task struct {
 	ID       string `json:"id"`
@@ -914,6 +926,324 @@ func apiBalance(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// ── Template helpers ──
+
+func fmtTokens(n int) string {
+	if n >= 1e6 {
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	}
+	if n >= 1e3 {
+		return fmt.Sprintf("%dk", n/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func timeAgo(ts string) string {
+	if ts == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ""
+	}
+	d := time.Since(t)
+	if d < 0 {
+		return "just now"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
+func isStale(ts string, thresholdMin int) bool {
+	if ts == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return false
+	}
+	return time.Since(t) > time.Duration(thresholdMin)*time.Minute
+}
+
+func agentName(platform string) string {
+	agents, _ := mergedAgents()
+	if a, ok := agents[platform]; ok {
+		return a.Name
+	}
+	if platform != "" {
+		return platform
+	}
+	return "Unassigned"
+}
+
+func agentColorStr(platform string) string {
+	agents, _ := mergedAgents()
+	if a, ok := agents[platform]; ok && a.Color != "" {
+		return a.Color
+	}
+	return "#999"
+}
+
+// ── Page handler ──
+
+func pageIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.ExecuteTemplate(w, "layout", map[string]interface{}{"DarkMode": false})
+}
+
+func serveCSS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(staticCSS)
+}
+
+// ── Partial handlers ──
+
+func partialsBalance(w http.ResponseWriter, r *http.Request) {
+	bal := fetchBalance()
+	s, _ := readState()
+
+	var live, totalTasks, burned int
+	for _, t := range s.Tasks {
+		totalTasks++
+		if t.Status == "active" {
+			live++
+		}
+		burned += t.Tokens
+	}
+
+	type provData struct {
+		Name       string
+		Color      string
+		Configured bool
+		ValueStr   string
+	}
+	var providers []provData
+	for _, p := range bal.Providers {
+		pd := provData{Name: p.Name, Color: p.Color, Configured: p.Configured}
+		if p.Balance != nil {
+			if orb, ok := p.Balance.(*OpenRouterBalance); ok {
+				pd.ValueStr = fmt.Sprintf("$%.2f", orb.CreditsUSD)
+			} else if cfb, ok := p.Balance.(*CloudflareBalance); ok {
+				pd.ValueStr = fmtTokens(cfb.NeuronsRemaining) + " neurons"
+			}
+		}
+		providers = append(providers, pd)
+	}
+
+	dollars := int(bal.TotalCreditsUSD)
+	cents := fmt.Sprintf("%02d", int(math.Round((bal.TotalCreditsUSD-float64(dollars))*100)))
+
+	data := map[string]interface{}{
+		"TotalCredits":    bal.TotalCreditsUSD,
+		"Dollars":         dollars,
+		"Cents":           cents,
+		"ConfiguredCount": len(bal.Providers) - func() int { c := 0; for _, p := range bal.Providers { if !p.Configured { c++ } }; return c }(),
+		"Providers":       providers,
+		"Live":            live,
+		"TotalTasks":      totalTasks,
+		"BurnedStr":       fmtTokens(burned),
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.ExecuteTemplate(w, "balance.html", data)
+}
+
+func partialsTasks(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if tab == "" {
+		tab = "active"
+	}
+	s, _ := readState()
+
+	type taskView struct {
+		ID, Prompt, Platform, PlatformName, Elapsed, TokensStr, Status string
+		Stale                                                         bool
+		ProgressPct                                                   int
+	}
+
+	var active, queued, done []taskView
+	for _, t := range s.Tasks {
+		tv := taskView{
+			ID: t.ID, Prompt: t.Prompt, Platform: t.Platform,
+			PlatformName: agentName(t.Platform),
+			Elapsed:   timeAgo(t.Created),
+			TokensStr: fmtTokens(t.Tokens),
+			Status:    t.Status,
+			Stale:     isStale(t.Created, 5),
+			ProgressPct: 50,
+		}
+		switch t.Status {
+		case "active":
+			active = append(active, tv)
+		case "queued":
+			queued = append(queued, tv)
+		case "done", "failed":
+			done = append(done, tv)
+		}
+	}
+
+	data := map[string]interface{}{
+		"Tab": tab, "Active": active, "Queued": queued, "Done": done,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.ExecuteTemplate(w, "tasks.html", data)
+}
+
+func partialsDetail(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/partials/detail/")
+	s, _ := readState()
+	var task *Task
+	for i := range s.Tasks {
+		if s.Tasks[i].ID == id {
+			task = &s.Tasks[i]
+			break
+		}
+	}
+	if task == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var startedStr string
+	if t, err := time.Parse(time.RFC3339, task.Created); err == nil {
+		startedStr = t.Local().Format("Jan 2, 3:04 PM")
+	}
+
+	data := map[string]interface{}{
+		"ID": task.ID, "Prompt": task.Prompt, "Dir": task.Dir,
+		"AgentName": agentName(task.Platform), "AgentColor": agentColorStr(task.Platform),
+		"Elapsed": timeAgo(task.Created), "Stale": isStale(task.Created, 5),
+		"StartedStr": startedStr, "TokensStr": fmtTokens(task.Tokens),
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.ExecuteTemplate(w, "detail.html", data)
+}
+
+func partialsSettings(w http.ResponseWriter, r *http.Request) {
+	cfg := buildConfig()
+
+	type keyView struct{ Name, EnvVar, Preview string; Set bool }
+	type routerView struct {
+		Name, Color                  string
+		Keys                         []keyView
+		AllSet, SomeSet              bool
+		MissingCount                 int
+	}
+	type agentView struct{ Name, Color, Note string; Available bool }
+
+	var agents []agentView
+	for _, a := range cfg.Agents {
+		agents = append(agents, agentView{Name: a.Name, Color: a.Color, Note: a.Note, Available: a.Available})
+	}
+
+	var routers []routerView
+	var keysSet, keysTotal int
+	for _, rc := range cfg.Routers {
+		rv := routerView{Name: rc.Name, Color: rc.Color}
+		for _, k := range rc.Keys {
+			rv.Keys = append(rv.Keys, keyView{Name: k.Name, EnvVar: k.EnvVar, Preview: k.Preview, Set: k.Set})
+			keysTotal++
+			if k.Set {
+				keysSet++
+			}
+		}
+		rv.AllSet = len(rv.Keys) > 0 && keysSet == keysTotal // this is wrong, needs per-router
+		allSet := true
+		someSet := false
+		missing := 0
+		for _, k := range rv.Keys {
+			if !k.Set {
+				allSet = false
+				missing++
+			} else {
+				someSet = true
+			}
+		}
+		rv.AllSet = allSet
+		rv.SomeSet = someSet
+		rv.MissingCount = missing
+		routers = append(routers, rv)
+	}
+
+	data := map[string]interface{}{
+		"KeysSet": keysSet, "KeysTotal": keysTotal,
+		"Agents": agents, "Routers": routers,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.ExecuteTemplate(w, "settings.html", data)
+}
+
+func partialsCreate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.ExecuteTemplate(w, "create.html", nil)
+}
+
+// buildConfig returns the config data for the settings page
+func buildConfig() struct {
+	Agents  []struct{ Name, Color, Note string; Available bool }
+	Routers []struct {
+		Name, Color string
+		Keys        []KeyStatus
+	}
+} {
+	type agentInfo struct{ Name, Color, Note string; Available bool }
+	type routerInfo struct {
+		Name, Color string
+		Keys        []KeyStatus
+	}
+	var result struct {
+		Agents  []struct{ Name, Color, Note string; Available bool }
+		Routers []struct {
+			Name, Color string
+			Keys        []KeyStatus
+		}
+	}
+
+	ma, _ := mergedAgents()
+	for _, a := range ma {
+		result.Agents = append(result.Agents, struct{ Name, Color, Note string; Available bool }{
+			Name: a.Name, Color: a.Color, Note: a.Note, Available: a.Available,
+		})
+	}
+
+	routers := []struct {
+		ID, Name, Color string
+		Keys            []KeyStatus
+	}{
+		{"cf-ai", "Cloudflare AI Gateway", "#D96F0E", []KeyStatus{
+			checkKey("API Token", "CLOUDFLARE_API_TOKEN"),
+			checkKey("Account ID", "CLOUDFLARE_ACCOUNT_ID"),
+			checkKey("AI Gateway ID", "CLOUDFLARE_AI_GATEWAY_ID"),
+		}},
+		{"openrouter", "OpenRouter", "#7C3AED", []KeyStatus{
+			checkKey("API Key", "OPENROUTER_API_KEY"),
+		}},
+		{"zen", "OpenCode Zen", "#4F6EC5", []KeyStatus{
+			checkKey("API Key", "OPENCODE_ZEN_API_KEY"),
+		}},
+	}
+	for _, rt := range routers {
+		result.Routers = append(result.Routers, struct {
+			Name, Color string
+			Keys        []KeyStatus
+		}{Name: rt.Name, Color: rt.Color, Keys: rt.Keys})
+	}
+
+	return result
+}
+
 func main() {
 	dir := os.Getenv("CHOMP_DIR")
 	if dir == "" {
@@ -940,9 +1270,24 @@ func main() {
 		port = "8001"
 	}
 
-	dashDir := filepath.Join(dir, "dashboard")
+	// Parse embedded templates
+	var err error
+	tmpl, err = template.New("").ParseFS(templateFS, "templates/*.html", "templates/partials/*.html")
+	if err != nil {
+		log.Fatalf("failed to parse templates: %v", err)
+	}
 
 	mux := http.NewServeMux()
+	// Pages
+	mux.HandleFunc("/", pageIndex)
+	mux.HandleFunc("/static/style.css", serveCSS)
+	// Partials (HTMX)
+	mux.HandleFunc("/partials/balance", partialsBalance)
+	mux.HandleFunc("/partials/tasks", partialsTasks)
+	mux.HandleFunc("/partials/detail/", partialsDetail)
+	mux.HandleFunc("/partials/settings", partialsSettings)
+	mux.HandleFunc("/partials/create", partialsCreate)
+	// API
 	mux.HandleFunc("/api/state", apiState)
 	mux.HandleFunc("/api/config", apiConfig)
 	mux.HandleFunc("/api/config/keys", apiConfigKeys)
@@ -952,7 +1297,6 @@ func main() {
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
 	mux.HandleFunc("/api/balance", apiBalance)
-	mux.Handle("/", http.FileServer(http.Dir(dashDir)))
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
