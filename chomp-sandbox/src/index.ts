@@ -16,6 +16,7 @@ interface DispatchRequest {
   model: string;
   repoUrl?: string;
   dir?: string;
+  maxGateLoops?: number;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -91,7 +92,7 @@ export default {
 
 async function handleDispatch(request: Request, env: Env): Promise<Response> {
   const body = await request.json() as DispatchRequest;
-  const { taskId, prompt, agent, model, repoUrl, dir } = body;
+  const { taskId, prompt, agent, model, repoUrl, dir, maxGateLoops } = body;
 
   if (!taskId || !prompt || !agent || !model) {
     return json({ error: 'missing required fields: taskId, prompt, agent, model' }, 400);
@@ -122,6 +123,7 @@ async function handleDispatch(request: Request, env: Env): Promise<Response> {
           REPO_DIR: workDir,
           ...(env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } : {}),
           ...(env.OPENAI_API_KEY ? { OPENAI_API_KEY: env.OPENAI_API_KEY } : {}),
+          ...(maxGateLoops ? { MAX_GATE_LOOPS: String(maxGateLoops) } : {}),
         },
         cwd: workDir,
         processId: `agent-${taskId}`,
