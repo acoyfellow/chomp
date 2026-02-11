@@ -986,6 +986,126 @@ func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// apiSandboxOutput proxies agent output from the sandbox Worker.
+func apiSandboxOutput(w http.ResponseWriter, r *http.Request) {
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/sandbox/output/")
+	if taskID == "" {
+		http.Error(w, "need task id", 400)
+		return
+	}
+
+	// Find the sandbox ID from the active session
+	s, err := readState()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	var sandboxID, processID string
+	for _, t := range s.Tasks {
+		if t.ID == taskID {
+			for i := len(t.Sessions) - 1; i >= 0; i-- {
+				if t.Sessions[i].SandboxID != "" {
+					sandboxID = t.Sessions[i].SandboxID
+					processID = "agent-" + taskID
+					break
+				}
+			}
+			break
+		}
+	}
+	if sandboxID == "" {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("No sandbox running"))
+		return
+	}
+
+	// Fetch logs from sandbox Worker
+	client := &http.Client{Timeout: 10 * time.Second}
+	url := fmt.Sprintf("%s/logs/%s/%s", sandboxWorkerURL, sandboxID, processID)
+	resp, err := client.Get(url)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "Error fetching sandbox output: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Logs struct {
+			Stdout string `json:"stdout"`
+			Stderr string `json:"stderr"`
+		} `json:"logs"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("Sandbox output unavailable"))
+		return
+	}
+	if result.Error != "" {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "Sandbox: %s", result.Error)
+		return
+	}
+
+	// Strip ANSI escape codes for clean display
+	output := stripAnsi(result.Logs.Stdout)
+	if result.Logs.Stderr != "" {
+		output += "\n" + stripAnsi(result.Logs.Stderr)
+	}
+	if output == "" {
+		output = "Waiting for agent output..."
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(output))
+}
+
+// stripAnsi removes ANSI escape sequences from text.
+func stripAnsi(s string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			// Skip ESC sequences
+			i++
+			if i < len(s) && s[i] == '[' {
+				i++
+				for i < len(s) && !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z')) {
+					i++
+				}
+				if i < len(s) {
+					i++
+				}
+			} else if i < len(s) && s[i] == ']' {
+				// OSC sequence — skip until BEL or ST
+				i++
+				for i < len(s) && s[i] != '\x07' && s[i] != '\x1b' {
+					i++
+				}
+				if i < len(s) && s[i] == '\x07' {
+					i++
+				}
+			} else if i < len(s) && s[i] == '?' {
+				i++
+				for i < len(s) && !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z')) {
+					i++
+				}
+				if i < len(s) {
+					i++
+				}
+			}
+		} else if s[i] < ' ' && s[i] != '\n' && s[i] != '\r' && s[i] != '\t' {
+			// Skip other control characters
+			i++
+		} else {
+			result.WriteByte(s[i])
+			i++
+		}
+	}
+	return result.String()
+}
+
 // --------------- Platform checks ---------------
 
 // fetchOpenRouterCredits returns the remaining credits in USD for the given API key.
@@ -1344,12 +1464,22 @@ func partialsDetail(w http.ResponseWriter, r *http.Request) {
 		sessions = append(sessions, sv)
 	}
 
+	// Get sandbox ID from active session (last one without EndedAt)
+	var activeSandboxID string
+	for i := len(task.Sessions) - 1; i >= 0; i-- {
+		if task.Sessions[i].EndedAt == "" && task.Sessions[i].SandboxID != "" {
+			activeSandboxID = task.Sessions[i].SandboxID
+			break
+		}
+	}
+
 	data := map[string]interface{}{
 		"ID": task.ID, "Prompt": task.Prompt, "Dir": task.Dir,
 		"AgentName": agentName(task.Platform), "AgentColor": agentColorStr(task.Platform),
 		"Elapsed": timeAgo(task.Created), "Stale": isStale(task.Created, 5),
 		"StartedStr": startedStr, "TokensStr": fmtTokens(task.Tokens),
 		"SessionCount": len(task.Sessions), "Sessions": sessions,
+		"SandboxID": activeSandboxID,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.ExecuteTemplate(w, "detail.html", data)
@@ -1567,6 +1697,7 @@ func main() {
 	mux.HandleFunc("/api/tasks/update", apiUpdateTask)
 	mux.HandleFunc("/api/tasks/handoff", apiHandoffTask)
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
+	mux.HandleFunc("/api/sandbox/output/", apiSandboxOutput)
 	mux.HandleFunc("/api/platforms", apiPlatforms)
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)

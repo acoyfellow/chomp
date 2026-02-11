@@ -1273,3 +1273,62 @@ func TestSandboxDispatch(t *testing.T) {
 		t.Fatalf("expected sandbox_id=task-1, got %s", s.Tasks[0].Sessions[0].SandboxID)
 	}
 }
+
+func TestStripAnsi(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"hello", "hello"},
+		{"\x1b[31mred\x1b[0m", "red"},
+		{"\x1b[38;5;109mpi\x1b[39m v0.52.9", "pi v0.52.9"},
+		{"\x1b]0;title\x07text", "text"},
+		{"a\x1b[?2004hb", "ab"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := stripAnsi(c.in)
+		if got != c.want {
+			t.Errorf("stripAnsi(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestSandboxOutputEndpoint(t *testing.T) {
+	defer setupTest(t)()
+
+	// Create a mock sandbox worker that serves logs
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"sandboxId":"task-1","processId":"agent-1","logs":{"stdout":"\u001b[31mhello\u001b[0m world","stderr":""}}`)
+	}))
+	defer mock.Close()
+
+	old := sandboxWorkerURL
+	sandboxWorkerURL = mock.URL
+	defer func() { sandboxWorkerURL = old }()
+
+	// Create task, run it (which sets sandbox_id via dispatch)
+	postJSON(apiAddTask, `{"prompt":"test","agent":"pi","model":"test"}`)
+	postJSON(apiRunTask, `{"id":"1"}`)
+
+	// Manually set sandbox_id since dispatch is async
+	time.Sleep(100 * time.Millisecond)
+	stateMu.Lock()
+	s, _ := readStateUnsafe()
+	if len(s.Tasks) > 0 && len(s.Tasks[0].Sessions) > 0 {
+		s.Tasks[0].Sessions[0].SandboxID = "task-1"
+		writeState(s)
+	}
+	stateMu.Unlock()
+
+	// Hit the output endpoint
+	req := httptest.NewRequest("GET", "/api/sandbox/output/1", nil)
+	w := httptest.NewRecorder()
+	apiSandboxOutput(w, req)
+
+	got := w.Body.String()
+	if !strings.Contains(got, "hello world") {
+		t.Fatalf("expected 'hello world' in output, got: %s", got)
+	}
+	if strings.Contains(got, "\x1b") {
+		t.Fatal("ANSI codes should be stripped")
+	}
+}

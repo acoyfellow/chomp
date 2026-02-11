@@ -53,10 +53,26 @@
   {{end}}
 </div>
 
+{{if .SandboxID}}
+<div class="mb-4">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-[11px] font-semibold text-zinc-400 uppercase tracking-widest">Sandbox</div>
+    <div class="flex items-center gap-1.5">
+      <span class="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+      <span class="text-[10px] text-zinc-400 font-mono">{{.SandboxID}}</span>
+    </div>
+  </div>
+  <div id="sandbox-output" class="bg-zinc-900 text-green-400 text-xs font-mono p-3 rounded-xl max-h-48 overflow-y-auto whitespace-pre-wrap break-all"
+       hx-get="/api/sandbox/output/{{.ID}}"
+       hx-trigger="load, every 5s"
+       hx-swap="innerHTML">Loading sandbox output...</div>
+</div>
+{{else}}
 <div class="flex items-center gap-2.5 p-3.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl mb-4">
   <span class="inline-block w-3.5 h-3.5 border-2 border-green-600 border-t-transparent rounded-full animate-spin-slow shrink-0"></span>
   <span class="text-sm text-zinc-500">Agent is working...</span>
 </div>
+{{end}}
 
 <div class="flex gap-2">
   <button hx-post="/api/tasks/delete" hx-vals='{"id":"{{.ID}}"}' hx-swap="none"
