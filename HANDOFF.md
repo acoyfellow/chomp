@@ -140,10 +140,12 @@ Dashboard (Go, exe.dev :8000)       Cloudflare Edge
 - Deployed to https://chomp-sandbox.coy.workers.dev
 - All endpoints tested and working
 
-**Phase 2: Go server integration**
+**Phase 2: Go server integration ✅ DONE**
 - `apiRunTask` → POST to Worker `/dispatch` with task details
-- Store `sandbox_id` on Task/Session
+- Store `sandbox_id` on Session, `repo_url` on Task
 - Agent in sandbox calls back: `curl $CHOMP_API/api/tasks/update`
+- TestSandboxDispatch with mock Worker (60 tests passing)
+- Docker rebuilt and redeployed
 
 **Phase 3: Live terminal**
 - xterm.js in detail sheet (CDN: xterm.js + `@cloudflare/sandbox/addon`)
