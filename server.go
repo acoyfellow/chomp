@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 )
@@ -36,14 +39,28 @@ var allowedKeys = map[string]bool{
 }
 
 var (
-	stateFile string
-	keysFile  string
-	cacheMu   sync.RWMutex
-	cached    *State
-	cachedAt  time.Time
-	stateMu   sync.Mutex
-	keysMu    sync.Mutex
+	stateFile  string
+	keysFile   string
+	agentsFile string
+	cacheMu    sync.RWMutex
+	cached     *State
+	cachedAt   time.Time
+	stateMu    sync.Mutex
+	keysMu     sync.Mutex
+	agentsMu   sync.Mutex
+
+	balanceMu     sync.Mutex
+	balanceCached *BalanceResponse
+	balanceCachedAt time.Time
 )
+
+var builtinAgentIDs = map[string]bool{
+	"shelley":  true,
+	"opencode": true,
+	"pi":       true,
+}
+
+var agentIDRegexp = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 func readState() (*State, error) {
 	cacheMu.RLock()
@@ -120,9 +137,21 @@ type ConfigResponse struct {
 }
 
 type AgentConfig struct {
-	Name      string `json:"name"`
-	Available bool   `json:"available"`
-	Note      string `json:"note"`
+	Name      string   `json:"name"`
+	Builtin   bool     `json:"builtin"`
+	Available bool     `json:"available"`
+	Command   string   `json:"command"`
+	Models    []string `json:"models"`
+	Color     string   `json:"color"`
+	Note      string   `json:"note"`
+}
+
+// CustomAgent is the on-disk format for state/agents.json
+type CustomAgent struct {
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Models  []string `json:"models"`
+	Color   string   `json:"color"`
 }
 
 type RouterConfig struct {
@@ -198,6 +227,198 @@ func readKeys() (map[string]string, error) {
 	return keys, nil
 }
 
+// readCustomAgents loads the persisted custom agents map from disk.
+func readCustomAgents() (map[string]CustomAgent, error) {
+	data, err := os.ReadFile(agentsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]CustomAgent{}, nil
+		}
+		return nil, err
+	}
+	var agents map[string]CustomAgent
+	if err := json.Unmarshal(data, &agents); err != nil {
+		return nil, err
+	}
+	return agents, nil
+}
+
+// saveCustomAgents writes the custom agents map to state/agents.json.
+func saveCustomAgents(agents map[string]CustomAgent) error {
+	data, err := json.MarshalIndent(agents, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := agentsFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, agentsFile)
+}
+
+// builtinAgents returns the hardcoded built-in agent configs.
+func builtinAgents() map[string]AgentConfig {
+	return map[string]AgentConfig{
+		"shelley": {
+			Name:      "Shelley",
+			Builtin:   true,
+			Available: true,
+			Command:   "",
+			Models:    []string{"claude-sonnet-4", "claude-opus-4"},
+			Color:     "#C8A630",
+			Note:      "exe.dev worker loops",
+		},
+		"opencode": {
+			Name:      "OpenCode",
+			Builtin:   true,
+			Available: func() bool { _, err := os.Stat("/usr/local/bin/opencode"); return err == nil }(),
+			Command:   "opencode",
+			Models:    []string{"claude-sonnet-4", "claude-opus-4", "gpt-4.1", "gemini-2.5-pro", "o3", "o4-mini"},
+			Color:     "#4F6EC5",
+			Note:      "CLI agent",
+		},
+		"pi": {
+			Name:      "Pi",
+			Builtin:   true,
+			Available: false,
+			Command:   "",
+			Models:    []string{"claude-sonnet-4", "claude-opus-4", "gpt-4.1", "gemini-2.5-pro"},
+			Color:     "#E05D44",
+			Note:      "Not yet configured",
+		},
+	}
+}
+
+// mergedAgents returns built-in agents merged with custom agents from disk.
+func mergedAgents() (map[string]AgentConfig, error) {
+	agents := builtinAgents()
+
+	custom, err := readCustomAgents()
+	if err != nil {
+		return nil, err
+	}
+
+	for id, ca := range custom {
+		if builtinAgentIDs[id] {
+			continue // never override built-ins
+		}
+		available := false
+		if ca.Command != "" {
+			if _, err := exec.LookPath(ca.Command); err == nil {
+				available = true
+			}
+		}
+		agents[id] = AgentConfig{
+			Name:      ca.Name,
+			Builtin:   false,
+			Available: available,
+			Command:   ca.Command,
+			Models:    ca.Models,
+			Color:     ca.Color,
+			Note:      "",
+		}
+	}
+
+	return agents, nil
+}
+
+func apiConfigAgents(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		agents, err := mergedAgents()
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(agents)
+
+	case http.MethodPost:
+		var body struct {
+			ID      string   `json:"id"`
+			Name    string   `json:"name"`
+			Command string   `json:"command"`
+			Models  []string `json:"models"`
+			Color   string   `json:"color"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" || body.Name == "" {
+			http.Error(w, "need id and name", 400)
+			return
+		}
+		if !agentIDRegexp.MatchString(body.ID) {
+			http.Error(w, "id must be lowercase alphanumeric + hyphens", 400)
+			return
+		}
+		if builtinAgentIDs[body.ID] {
+			http.Error(w, fmt.Sprintf("cannot overwrite built-in agent %q", body.ID), 400)
+			return
+		}
+
+		agentsMu.Lock()
+		defer agentsMu.Unlock()
+
+		agents, err := readCustomAgents()
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		models := body.Models
+		if models == nil {
+			models = []string{}
+		}
+		agents[body.ID] = CustomAgent{
+			Name:    body.Name,
+			Command: body.Command,
+			Models:  models,
+			Color:   body.Color,
+		}
+
+		if err := saveCustomAgents(agents); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "id": body.ID})
+
+	case http.MethodDelete:
+		var body struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+			http.Error(w, "need id", 400)
+			return
+		}
+		if builtinAgentIDs[body.ID] {
+			http.Error(w, fmt.Sprintf("cannot delete built-in agent %q", body.ID), 400)
+			return
+		}
+
+		agentsMu.Lock()
+		defer agentsMu.Unlock()
+
+		agents, err := readCustomAgents()
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		delete(agents, body.ID)
+
+		if err := saveCustomAgents(agents); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "id": body.ID})
+
+	default:
+		http.Error(w, "GET, POST, or DELETE only", 405)
+	}
+}
+
 func apiConfigKeys(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
@@ -245,24 +466,13 @@ func apiConfigKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiConfig(w http.ResponseWriter, r *http.Request) {
+	agents, err := mergedAgents()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	cfg := ConfigResponse{
-		Agents: map[string]AgentConfig{
-			"shelley": {
-				Name:      "Shelley",
-				Available: true,
-				Note:      "exe.dev worker loops (built-in)",
-			},
-			"opencode": {
-				Name:      "OpenCode",
-				Available: func() bool { _, err := os.Stat("/usr/local/bin/opencode"); return err == nil }(),
-				Note:      "CLI agent",
-			},
-			"pi": {
-				Name:      "Pi",
-				Available: false,
-				Note:      "Not yet configured",
-			},
-		},
+		Agents: agents,
 		Routers: map[string]RouterConfig{
 			"cf-ai": {
 				Name: "Cloudflare AI Gateway",
@@ -494,6 +704,216 @@ func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// --------------- Balance endpoint ---------------
+
+type ProviderBalance struct {
+	ID         string      `json:"id"`
+	Name       string      `json:"name"`
+	Color      string      `json:"color"`
+	Configured bool        `json:"configured"`
+	Balance    interface{} `json:"balance"`
+	Note       string      `json:"note,omitempty"`
+	Error      string      `json:"error,omitempty"`
+}
+
+type BalanceResponse struct {
+	TotalCreditsUSD float64           `json:"total_credits_usd"`
+	Providers       []ProviderBalance `json:"providers"`
+	CheckedAt       string            `json:"checked_at"`
+}
+
+type OpenRouterBalance struct {
+	CreditsUSD float64  `json:"credits_usd"`
+	UsedUSD    float64  `json:"used_usd"`
+	LimitUSD   float64  `json:"limit_usd"`
+	FreeModels []string `json:"free_models"`
+}
+
+type CloudflareBalance struct {
+	NeuronsRemaining int    `json:"neurons_remaining"`
+	NeuronsLimit     int    `json:"neurons_limit"`
+	NeuronsUsed      int    `json:"neurons_used"`
+	Reset            string `json:"reset"`
+}
+
+func fetchOpenRouterBalance(apiKey string) (interface{}, float64, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// Fetch key info
+	req, err := http.NewRequest("GET", "https://openrouter.ai/api/v1/auth/key", nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("auth/key request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("reading auth/key response: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return nil, 0, fmt.Errorf("auth/key returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var keyResp struct {
+		Data struct {
+			Usage          float64 `json:"usage"`
+			Limit          float64 `json:"limit"`
+			LimitRemaining float64 `json:"limit_remaining"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &keyResp); err != nil {
+		return nil, 0, fmt.Errorf("parsing auth/key: %w", err)
+	}
+
+	// Fetch free models
+	var freeModels []string
+	modReq, err := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
+	if err == nil {
+		modResp, err := client.Do(modReq)
+		if err == nil {
+			defer modResp.Body.Close()
+			modBody, err := io.ReadAll(modResp.Body)
+			if err == nil && modResp.StatusCode == 200 {
+				var modelsResp struct {
+					Data []struct {
+						ID      string `json:"id"`
+						Pricing struct {
+							Prompt string `json:"prompt"`
+						} `json:"pricing"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(modBody, &modelsResp) == nil {
+					for _, m := range modelsResp.Data {
+						if m.Pricing.Prompt == "0" {
+							freeModels = append(freeModels, m.ID)
+							if len(freeModels) >= 10 {
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if freeModels == nil {
+		freeModels = []string{}
+	}
+
+	bal := OpenRouterBalance{
+		CreditsUSD: keyResp.Data.LimitRemaining,
+		UsedUSD:    keyResp.Data.Usage,
+		LimitUSD:   keyResp.Data.Limit,
+		FreeModels: freeModels,
+	}
+	return bal, bal.CreditsUSD, nil
+}
+
+func fetchBalance() *BalanceResponse {
+	var providers []ProviderBalance
+	var totalUSD float64
+
+	// --- OpenRouter ---
+	orKey := os.Getenv("OPENROUTER_API_KEY")
+	if orKey != "" {
+		p := ProviderBalance{
+			ID:         "openrouter",
+			Name:       "OpenRouter",
+			Color:      "#7C3AED",
+			Configured: true,
+		}
+		bal, credits, err := fetchOpenRouterBalance(orKey)
+		if err != nil {
+			p.Error = err.Error()
+		} else {
+			p.Balance = bal
+			totalUSD += credits
+		}
+		providers = append(providers, p)
+	} else {
+		providers = append(providers, ProviderBalance{
+			ID:         "openrouter",
+			Name:       "OpenRouter",
+			Color:      "#7C3AED",
+			Configured: false,
+		})
+	}
+
+	// --- Cloudflare Workers AI ---
+	cfToken := os.Getenv("CLOUDFLARE_API_TOKEN")
+	cfAccount := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
+	if cfToken != "" && cfAccount != "" {
+		providers = append(providers, ProviderBalance{
+			ID:         "cloudflare",
+			Name:       "Cloudflare AI",
+			Color:      "#D96F0E",
+			Configured: true,
+			Balance: CloudflareBalance{
+				NeuronsRemaining: 10000,
+				NeuronsLimit:     10000,
+				NeuronsUsed:      0,
+				Reset:            "daily",
+			},
+			Note: "10k neurons/day free tier",
+		})
+	} else {
+		providers = append(providers, ProviderBalance{
+			ID:         "cloudflare",
+			Name:       "Cloudflare AI",
+			Color:      "#D96F0E",
+			Configured: false,
+		})
+	}
+
+	// --- Anthropic/Shelley (always present) ---
+	providers = append(providers, ProviderBalance{
+		ID:         "anthropic",
+		Name:       "Anthropic (Shelley)",
+		Color:      "#C8A630",
+		Configured: true,
+		Balance:    nil,
+		Note:       "Managed by exe.dev runtime",
+	})
+
+	return &BalanceResponse{
+		TotalCreditsUSD: totalUSD,
+		Providers:       providers,
+		CheckedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func apiBalance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+
+	balanceMu.Lock()
+	if balanceCached != nil && time.Since(balanceCachedAt) < 60*time.Second {
+		resp := balanceCached
+		balanceMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+	balanceMu.Unlock()
+
+	resp := fetchBalance()
+
+	balanceMu.Lock()
+	balanceCached = resp
+	balanceCachedAt = time.Now()
+	balanceMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 func main() {
 	dir := os.Getenv("CHOMP_DIR")
 	if dir == "" {
@@ -505,9 +925,11 @@ func main() {
 	if info, err := os.Stat(stateDir); err == nil && info.IsDir() {
 		stateFile = filepath.Join(stateDir, "state.json")
 		keysFile = filepath.Join(stateDir, "keys.json")
+		agentsFile = filepath.Join(stateDir, "agents.json")
 	} else {
 		stateFile = filepath.Join(dir, "state.json")
 		keysFile = filepath.Join(dir, "keys.json")
+		agentsFile = filepath.Join(dir, "agents.json")
 	}
 
 	// Load persisted API keys into env vars
@@ -524,10 +946,12 @@ func main() {
 	mux.HandleFunc("/api/state", apiState)
 	mux.HandleFunc("/api/config", apiConfig)
 	mux.HandleFunc("/api/config/keys", apiConfigKeys)
+	mux.HandleFunc("/api/config/agents", apiConfigAgents)
 	mux.HandleFunc("/api/tasks", apiAddTask)
 	mux.HandleFunc("/api/tasks/run", apiRunTask)
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
+	mux.HandleFunc("/api/balance", apiBalance)
 	mux.Handle("/", http.FileServer(http.Dir(dashDir)))
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)

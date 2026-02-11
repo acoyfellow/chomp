@@ -1,5 +1,6 @@
 let currentTab = 'active';
 let selectedLoop = null;
+let balanceData = null;
 
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? Math.round(n/1e3)+'k' : ''+n;
 const circ = 113.1;
@@ -41,16 +42,63 @@ async function deleteTask(id, ev) {
   } catch(e) { showToast('Delete failed: ' + e.message, true); }
 }
 
-// ── Summary ──
-function renderSummary() {
+// ── Balance card ──
+async function fetchBalance() {
+  try {
+    const res = await fetch('/api/balance');
+    if (res.ok) balanceData = await res.json();
+  } catch(e) { /* silent */ }
+}
+
+function renderBalance() {
+  const el = document.getElementById('balance-card');
+  const b = balanceData;
   const burns = [...LOOPS,...DONE].reduce((s,t) => s+(t.totalTokens||t.tokens||0), 0);
-  const sess = LOOPS.reduce((s,l) => s+l.sessions.length, 0);
   const live = LOOPS.filter(l => l.state === 'running').length;
-  document.getElementById('summary').innerHTML = `
-    <div class="sum-item"><div class="sum-val">${live ? '<span class="sum-live"></span>' : ''}${live}</div><div class="sum-label">Live</div></div>
-    <div class="sum-item"><div class="sum-val">${LOOPS.length + QUEUE.length + DONE.length}</div><div class="sum-label">Tasks</div></div>
-    <div class="sum-item"><div class="sum-val">${sess || LOOPS.length}</div><div class="sum-label">Sessions</div></div>
-    <div class="sum-item"><div class="sum-val hot">${fmt(burns)}</div><div class="sum-label">Burned</div></div>`;
+  const totalTasks = LOOPS.length + QUEUE.length + DONE.length;
+
+  if (!b) {
+    // Loading state
+    el.innerHTML = `
+      <div class="bal-top"><div class="bal-label">Available Balance</div></div>
+      <div class="bal-amount">—</div>
+      <div class="bal-sub">Checking providers...</div>`;
+    return;
+  }
+
+  const dollars = Math.floor(b.total_credits_usd);
+  const cents = Math.round((b.total_credits_usd - dollars) * 100).toString().padStart(2, '0');
+  const hasCredits = b.total_credits_usd > 0;
+
+  // Provider pills
+  const provHtml = (b.providers || []).map(p => {
+    if (!p.configured) return `<div class="bal-prov unconfigured"><div class="bal-prov-dot" style="background:${p.color}"></div><span class="bal-prov-name">${p.name}</span></div>`;
+    let val = '';
+    if (p.balance) {
+      if (p.balance.credits_usd !== undefined) val = '$' + p.balance.credits_usd.toFixed(2);
+      else if (p.balance.neurons_remaining !== undefined) val = fmt(p.balance.neurons_remaining) + ' neurons';
+    }
+    return `<div class="bal-prov"><div class="bal-prov-dot" style="background:${p.color}"></div><span class="bal-prov-name">${p.name}</span>${val ? `<span class="bal-prov-val">${val}</span>` : ''}</div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="bal-top">
+      <div class="bal-label">Available Balance</div>
+      <div class="bal-arrow">›</div>
+    </div>
+    <div class="bal-amount">${hasCredits ? `$${dollars}<span class="bal-cents">.${cents}</span>` : '$0<span class="bal-cents">.00</span>'}</div>
+    <div class="bal-sub">${b.providers.filter(p=>p.configured).length} provider${b.providers.filter(p=>p.configured).length!==1?'s':''} connected</div>
+    <div class="bal-providers">${provHtml}</div>
+    <div class="bal-stats">
+      <div class="bal-stat"><div class="bal-stat-val">${live ? '<span class="sum-live"></span>' : ''}${live}</div><div class="bal-stat-label">Live</div></div>
+      <div class="bal-stat"><div class="bal-stat-val">${totalTasks}</div><div class="bal-stat-label">Tasks</div></div>
+      <div class="bal-stat"><div class="bal-stat-val">${fmt(burns)}</div><div class="bal-stat-label">Burned</div></div>
+    </div>`;
+}
+
+function openBalanceDetail() {
+  // For now, open settings. Later this becomes a full balance breakdown.
+  openSettings();
 }
 
 // ── Content ──
@@ -520,9 +568,13 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Poll + Init ──
+let balanceTick = 0;
 async function refresh() {
   await fetchState();
-  renderSummary();
+  // Fetch balance less often (every 20th refresh = ~60s)
+  if (balanceTick % 20 === 0) fetchBalance().then(renderBalance);
+  balanceTick++;
+  renderBalance();
   renderContent();
 }
 refresh();
