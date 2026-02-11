@@ -33,6 +33,7 @@ async function fetchState() {
       state: 'running',
       totalTokens: t.tokens || 0,
       platform: t.platform || '',
+      created: t.created || '',
       gates: [],
       sessions: [],
     }));
@@ -41,6 +42,7 @@ async function fetchState() {
       id: t.id,
       prompt: t.prompt,
       dir: t.dir || '',
+      created: t.created || '',
     }));
 
     DONE = tasks.filter(t => t.status === 'done' || t.status === 'failed').map(t => ({
@@ -54,6 +56,7 @@ async function fetchState() {
       sessions: 1,
     }));
   } catch (e) {
-    // Silently fail — dashboard shows empty state
+    console.error('fetch state failed:', e);
+    return { error: e.message };
   }
 }

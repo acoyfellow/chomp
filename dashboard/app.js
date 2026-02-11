@@ -4,6 +4,43 @@ let selectedLoop = null;
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? Math.round(n/1e3)+'k' : ''+n;
 const circ = 113.1;
 
+function ago(ts) {
+  if (!ts) return '';
+  const ms = Date.now() - new Date(ts).getTime();
+  if (ms < 0) return 'just now';
+  const s = Math.floor(ms/1000), m = Math.floor(s/60), h = Math.floor(m/60);
+  if (h > 0) return h + 'h ' + (m%60) + 'm';
+  if (m > 0) return m + 'm ' + (s%60) + 's';
+  return s + 's';
+}
+function isStale(ts, thresholdMin) {
+  if (!ts) return false;
+  return (Date.now() - new Date(ts).getTime()) > thresholdMin * 60000;
+}
+
+// Error toast
+function showToast(msg, isError) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (isError ? ' toast-err' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 4000);
+}
+
+// Delete task
+async function deleteTask(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (!confirm('Delete this task?')) return;
+  try {
+    const res = await fetch('/api/tasks/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Task deleted');
+    closeSheet();
+    await refresh();
+  } catch(e) { showToast('Delete failed: ' + e.message, true); }
+}
+
 // ── Summary ──
 function renderSummary() {
   const burns = [...LOOPS,...DONE].reduce((s,t) => s+(t.totalTokens||t.tokens||0), 0);
@@ -36,19 +73,25 @@ function renderLoops(el) {
     const offset = circ - (circ * pct / 100);
     const hasGates = gt > 0;
     const color = 'var(--green)';
+    const stale = isStale(loop.created, 5);
+    const elapsed = ago(loop.created);
     return `
-    <div class="card" onclick="openSheet('${loop.id}')">
+    <div class="card ${stale?'card-stale':''}" onclick="openSheet('${loop.id}')">
       <div class="card-top">
         <div class="card-title">${loop.prompt}</div>
-        <div class="badge badge-running">active</div>
+        <div class="badge badge-running"><span class="spinner"></span> active</div>
       </div>
-      ${loop.platform ? `<div class="card-agents"><div class="agent-chip">${loop.platform}</div></div>` : ''}
+      <div class="card-agents">
+        ${loop.platform ? `<div class="agent-chip">${AGENTS[loop.platform]?.name || loop.platform}</div>` : ''}
+        <div class="agent-chip chip-time">${elapsed}</div>
+        ${stale ? '<div class="agent-chip chip-warn">\u26a0 stale</div>' : ''}
+      </div>
       ${hasGates ? `
       <div class="card-progress">
         <div class="progress-ring"><svg width="40" height="40" viewBox="0 0 40 40"><circle class="progress-ring-bg" cx="20" cy="20" r="18"/><circle class="progress-ring-fill" cx="20" cy="20" r="18" stroke="${color}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/></svg><div class="progress-ring-text">${gp}/${gt}</div></div>
         <div class="progress-info"><div class="progress-label">${gp} of ${gt} gates passing</div><div class="progress-sub">${fmt(loop.totalTokens)} tokens</div></div>
       </div>` : `<div class="card-meta-row"><span class="card-meta">${fmt(loop.totalTokens)} tokens burned</span></div>`}
-      <div class="level-bar"><div class="level-track"><div class="level-fill lv-green" style="width:${hasGates ? pct : 50}%"></div></div></div>
+      <div class="level-bar"><div class="level-track"><div class="level-fill ${stale?'lv-orange':'lv-green'}" style="width:${hasGates ? pct : 50}%"></div></div></div>
     </div>`;
   }).join('');
 }
@@ -59,9 +102,14 @@ function renderQueue(el) {
     return;
   }
   el.innerHTML = QUEUE.map(t => `
-    <div class="q-card" onclick="openCreate('${t.id}')">
-      <div class="q-num">#${t.id}</div>
-      <div class="q-prompt">${t.prompt}</div>
+    <div class="q-card">
+      <div class="q-top">
+        <div onclick="openCreate('${t.id}')" style="flex:1;cursor:pointer">
+          <div class="q-num">#${t.id} \u00b7 ${ago(t.created) || 'just now'}</div>
+          <div class="q-prompt">${t.prompt}</div>
+        </div>
+        <button class="del-btn" onclick="deleteTask('${t.id}')" aria-label="Delete">\u2715</button>
+      </div>
     </div>`).join('');
 }
 
@@ -95,13 +143,26 @@ function closeSheet() {
 function renderSheet() {
   const l = selectedLoop;
   if (!l) return;
+  const stale = isStale(l.created, 5);
+  const elapsed = ago(l.created);
   document.getElementById('sheet-body').innerHTML = `
-    <div class="badge badge-running" style="display:inline-block;margin-bottom:10px">active</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <div class="badge badge-running"><span class="spinner"></span> active</div>
+      <div class="agent-chip chip-time">${elapsed}</div>
+      ${stale ? '<div class="agent-chip chip-warn">\u26a0 stale \u2014 no progress in 5+ min</div>' : ''}
+    </div>
     <div class="sh-title">${l.prompt}</div>
     ${l.dir ? `<div class="sh-dir">${l.dir}</div>` : ''}
-    ${l.platform ? `<div class="sh-dir">Platform: ${l.platform}</div>` : ''}
-    <div class="sh-section"><div class="sh-label">Tokens</div><div class="tok-labels"><span>${fmt(l.totalTokens)} burned</span></div></div>
-    <div class="sh-actions"><button class="btn btn-secondary" onclick="closeSheet()">Close</button></div>`;
+    ${l.platform ? `<div class="sh-dir">Agent: ${AGENTS[l.platform]?.name || l.platform}</div>` : ''}
+    ${l.created ? `<div class="sh-dir">Started: ${new Date(l.created).toLocaleString()}</div>` : ''}
+    <div class="sh-section">
+      <div class="sh-label">Tokens</div>
+      <div class="tok-labels"><span>${fmt(l.totalTokens)} burned</span></div>
+    </div>
+    <div class="sh-actions">
+      <button class="btn btn-danger" onclick="deleteTask('${l.id}')">Delete</button>
+      <button class="btn btn-secondary" onclick="closeSheet()">Close</button>
+    </div>`;
 }
 
 // ── Create flow (stepped: task → agent → gateway → model → start) ──
@@ -198,17 +259,20 @@ async function cSubmit() {
   if (!taskId) {
     try {
       const res = await fetch('/api/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prompt:cPrompt.trim(), dir:cDir.trim()||undefined}) });
+      if (!res.ok) { showToast('Create failed: ' + await res.text(), true); return; }
       const task = await res.json();
       taskId = task.id;
-    } catch(e) { alert('Failed to create task'); return; }
+    } catch(e) { showToast('Create failed: ' + e.message, true); return; }
   }
   try {
-    await fetch('/api/tasks/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:taskId, agent:cAgent, router:cRouter}) });
+    const res = await fetch('/api/tasks/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:taskId, agent:cAgent, router:cRouter}) });
+    if (!res.ok) { showToast('Start failed: ' + await res.text(), true); return; }
     closeCreate();
+    showToast('Task started');
     currentTab = 'active';
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
     await refresh();
-  } catch(e) { alert('Failed to start task'); }
+  } catch(e) { showToast('Start failed: ' + e.message, true); }
 }
 
 // ── Tabs ──

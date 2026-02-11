@@ -258,6 +258,49 @@ func apiDoneTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func apiDeleteTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "need id", 400)
+		return
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	s, err := readStateUnsafe()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	newTasks := make([]Task, 0, len(s.Tasks))
+	for _, t := range s.Tasks {
+		if t.ID != body.ID {
+			newTasks = append(newTasks, t)
+		}
+	}
+	s.Tasks = newTasks
+
+	if err := writeState(s); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func main() {
 	dir := os.Getenv("CHOMP_DIR")
 	if dir == "" {
@@ -284,6 +327,7 @@ func main() {
 	mux.HandleFunc("/api/tasks", apiAddTask)
 	mux.HandleFunc("/api/tasks/run", apiRunTask)
 	mux.HandleFunc("/api/tasks/done", apiDoneTask)
+	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
 	mux.Handle("/", http.FileServer(http.Dir(dashDir)))
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)
