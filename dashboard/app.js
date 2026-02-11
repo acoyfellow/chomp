@@ -56,17 +56,19 @@ function renderSummary() {
 // ── Content ──
 function renderContent() {
   const el = document.getElementById('content');
-  if (currentTab === 'active') renderLoops(el);
-  else if (currentTab === 'queue') renderQueue(el);
+  if (currentTab === 'active') renderActive(el);
   else renderDone(el);
 }
 
-function renderLoops(el) {
-  if (!LOOPS.length) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">\u25ce</div><div class="empty-text">No active loops</div><div class="empty-sub">Tap + to create and start a task</div></div>`;
+function renderActive(el) {
+  const hasAnything = LOOPS.length || QUEUE.length;
+  if (!hasAnything) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">\u25ce</div><div class="empty-text">Nothing here yet</div><div class="empty-sub">Tap + to create a task</div></div>`;
     return;
   }
-  el.innerHTML = LOOPS.map(loop => {
+
+  // Running tasks
+  const loopsHtml = LOOPS.map(loop => {
     const gt = loop.gates.length;
     const gp = loop.gates.filter(g => g.status === 'pass').length;
     const pct = gt ? Math.round(gp/gt*100) : 0;
@@ -94,23 +96,29 @@ function renderLoops(el) {
       <div class="level-bar"><div class="level-track"><div class="level-fill ${stale?'lv-orange':'lv-green'}" style="width:${hasGates ? pct : 50}%"></div></div></div>
     </div>`;
   }).join('');
-}
 
-function renderQueue(el) {
-  if (!QUEUE.length) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">\u2191</div><div class="empty-text">Queue empty</div><div class="empty-sub">Tap + to add a task</div></div>`;
-    return;
-  }
-  el.innerHTML = QUEUE.map(t => `
+  // Queued / waiting tasks
+  const queueHtml = QUEUE.length ? `
+    <div class="section-divider">
+      <div class="section-divider-line"></div>
+      <div class="section-divider-label">Waiting</div>
+      <div class="section-divider-line"></div>
+    </div>
+    ${QUEUE.map(t => `
     <div class="q-card">
       <div class="q-top">
-        <div onclick="openCreate('${t.id}')" style="flex:1;cursor:pointer">
-          <div class="q-num">#${t.id} \u00b7 ${ago(t.created) || 'just now'}</div>
+        <div class="q-info">
           <div class="q-prompt">${t.prompt}</div>
+          <div class="q-meta">#${t.id} \u00b7 ${ago(t.created) || 'just now'}</div>
         </div>
-        <button class="del-btn" onclick="deleteTask('${t.id}')" aria-label="Delete">\u2715</button>
+        <div class="q-actions">
+          <button class="q-action-btn q-start" onclick="openCreate('${t.id}')" title="Start">\u25B6</button>
+          <button class="q-action-btn q-del" onclick="deleteTask('${t.id}', event)" title="Delete">\u2715</button>
+        </div>
       </div>
-    </div>`).join('');
+    </div>`).join('')}` : '';
+
+  el.innerHTML = loopsHtml + queueHtml;
 }
 
 function renderDone(el) {
