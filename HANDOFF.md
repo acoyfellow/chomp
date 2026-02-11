@@ -133,11 +133,12 @@ Dashboard (Go, exe.dev :8000)       Cloudflare Edge
 
 ### Implementation phases
 
-**Phase 1: Worker scaffold (`chomp-sandbox/`)**
+**Phase 1: Worker scaffold (`chomp-sandbox/`) ✅ DONE**
 - New Worker project with Sandbox binding
 - Custom Dockerfile: base image + `pi` + `chomp` CLI
-- Endpoints: `/dispatch`, `/ws/terminal/:id`, `/status/:id`, `/kill/:id`
-- Deploy to Cloudflare
+- Endpoints: `/dispatch`, `/status/:id`, `/kill/:id` (terminal deferred to Phase 3)
+- Deployed to https://chomp-sandbox.coy.workers.dev
+- All endpoints tested and working
 
 **Phase 2: Go server integration**
 - `apiRunTask` → POST to Worker `/dispatch` with task details
