@@ -25,6 +25,9 @@ import (
 //go:embed templates/*.html templates/partials/*.html
 var templateFS embed.FS
 
+//go:embed templates/docs.html
+var docsHTML []byte
+
 //go:embed static/style.css
 var staticCSS []byte
 
@@ -1672,6 +1675,16 @@ func pageIndex(w http.ResponseWriter, r *http.Request) {
 	tmpl.ExecuteTemplate(w, "layout", map[string]interface{}{"DarkMode": false})
 }
 
+func pageDocs(w http.ResponseWriter, r *http.Request) {
+	docsTmpl, err := template.New("docs").Parse(string(docsHTML))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	docsTmpl.ExecuteTemplate(w, "layout", nil)
+}
+
 func serveCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -2082,6 +2095,7 @@ func main() {
 	mux := http.NewServeMux()
 	// Pages
 	mux.HandleFunc("/", pageIndex)
+	mux.HandleFunc("/docs", pageDocs)
 	mux.HandleFunc("/static/style.css", serveCSS)
 	mux.HandleFunc("/static/htmx.min.js", serveHTMX)
 	// Partials (HTMX)
