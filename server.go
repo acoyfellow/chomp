@@ -1802,10 +1802,36 @@ func apiJobs(w http.ResponseWriter, r *http.Request) {
 // free model access through whichever routers are configured.
 // No auth required on localhost — keys are pre-configured server-side.
 
+// v1Auth checks Bearer token for /v1/ endpoints. Same CHOMP_API_TOKEN.
+// Returns true if authorized. For local-only use, set CHOMP_V1_NO_AUTH=1 to skip.
+func v1Auth(w http.ResponseWriter, r *http.Request) bool {
+	if os.Getenv("CHOMP_V1_NO_AUTH") == "1" {
+		return true
+	}
+	token := os.Getenv("CHOMP_API_TOKEN")
+	if token == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(503)
+		fmt.Fprint(w, `{"error":{"message":"CHOMP_API_TOKEN not configured","type":"server_error"}}`)
+		return false
+	}
+	auth := r.Header.Get("Authorization")
+	if auth == "" || !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != token {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(401)
+		fmt.Fprint(w, `{"error":{"message":"invalid api key","type":"authentication_error"}}`)
+		return false
+	}
+	return true
+}
+
 // v1ChatCompletions handles POST /v1/chat/completions (OpenAI-compatible).
 func v1ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":{"message":"POST only","type":"invalid_request_error"}}`, 405)
+		return
+	}
+	if !v1Auth(w, r) {
 		return
 	}
 
@@ -1930,6 +1956,9 @@ func v1ChatCompletions(w http.ResponseWriter, r *http.Request) {
 func v1Models(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", 405)
+		return
+	}
+	if !v1Auth(w, r) {
 		return
 	}
 

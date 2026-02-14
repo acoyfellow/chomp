@@ -1573,6 +1573,74 @@ func TestJobHasRouterField(t *testing.T) {
 
 // --- OpenAI-compatible proxy tests ---
 
+// v1 helper: make a request with proper auth
+func v1Request(method, path, body string) *httptest.ResponseRecorder {
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, path, nil)
+	}
+	req.Header.Set("Authorization", "Bearer test-v1-tok")
+	w := httptest.NewRecorder()
+	switch {
+	case strings.HasSuffix(path, "/chat/completions"):
+		v1ChatCompletions(w, req)
+	case strings.HasSuffix(path, "/models"):
+		v1Models(w, req)
+	}
+	return w
+}
+
+func TestV1Auth_Unauthorized(t *testing.T) {
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	// No auth header
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestV1Auth_WrongToken(t *testing.T) {
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer wrong")
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestV1Auth_NoAuthMode(t *testing.T) {
+	os.Setenv("CHOMP_V1_NO_AUTH", "1")
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_V1_NO_AUTH")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	// No auth header but NO_AUTH=1, should pass auth and hit next validation
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	// Should get 400 (empty messages), NOT 401
+	if w.Code != 400 {
+		t.Fatalf("expected 400 (past auth), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestV1ChatCompletions_MethodNotAllowed(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/chat/completions", nil)
 	w := httptest.NewRecorder()
@@ -1583,39 +1651,35 @@ func TestV1ChatCompletions_MethodNotAllowed(t *testing.T) {
 }
 
 func TestV1ChatCompletions_EmptyMessages(t *testing.T) {
-	req := httptest.NewRequest("POST", "/v1/chat/completions",
-		strings.NewReader(`{"model":"auto","messages":[]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	v1ChatCompletions(w, req)
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+	w := v1Request("POST", "/v1/chat/completions", `{"model":"auto","messages":[]}`)
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 
 func TestV1ChatCompletions_InvalidJSON(t *testing.T) {
-	req := httptest.NewRequest("POST", "/v1/chat/completions",
-		strings.NewReader(`not json`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	v1ChatCompletions(w, req)
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+	w := v1Request("POST", "/v1/chat/completions", `not json`)
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 
 func TestV1ChatCompletions_UnknownRouter(t *testing.T) {
-	req := httptest.NewRequest("POST", "/v1/chat/completions",
-		strings.NewReader(`{"model":"x","router":"nope","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	v1ChatCompletions(w, req)
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+	w := v1Request("POST", "/v1/chat/completions", `{"model":"x","router":"nope","messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 
 func TestV1ChatCompletions_NoRouterConfigured(t *testing.T) {
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
 	saved := make(map[string]string)
 	for _, rd := range routerDefs {
 		if v := os.Getenv(rd.EnvKey); v != "" {
@@ -1625,11 +1689,7 @@ func TestV1ChatCompletions_NoRouterConfigured(t *testing.T) {
 	}
 	defer func() { for k, v := range saved { os.Setenv(k, v) } }()
 
-	req := httptest.NewRequest("POST", "/v1/chat/completions",
-		strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	v1ChatCompletions(w, req)
+	w := v1Request("POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != 502 {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
@@ -1644,10 +1704,22 @@ func TestV1Models_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestV1Models_ReturnsOpenAIFormat(t *testing.T) {
+func TestV1Models_Unauthorized(t *testing.T) {
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
 	req := httptest.NewRequest("GET", "/v1/models", nil)
 	w := httptest.NewRecorder()
 	v1Models(w, req)
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestV1Models_ReturnsOpenAIFormat(t *testing.T) {
+	os.Setenv("CHOMP_API_TOKEN", "test-v1-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+	w := v1Request("GET", "/v1/models", "")
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -1665,7 +1737,6 @@ func TestV1Models_ReturnsOpenAIFormat(t *testing.T) {
 	if result.Object != "list" {
 		t.Errorf("expected object=list, got %s", result.Object)
 	}
-	// All entries should have owned_by matching a router ID
 	for _, m := range result.Data {
 		if m.Object != "model" {
 			t.Errorf("model %s has object=%s, want model", m.ID, m.Object)
