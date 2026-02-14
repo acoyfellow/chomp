@@ -1796,6 +1796,174 @@ func apiJobs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(all)
 }
 
+// ── OpenAI-compatible proxy (/v1/*) ──
+//
+// This is the core product. Any OpenAI SDK can point at chomp and get
+// free model access through whichever routers are configured.
+// No auth required on localhost — keys are pre-configured server-side.
+
+// v1ChatCompletions handles POST /v1/chat/completions (OpenAI-compatible).
+func v1ChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":{"message":"POST only","type":"invalid_request_error"}}`, 405)
+		return
+	}
+
+	var body struct {
+		Model    string              `json:"model"`
+		Messages []map[string]string `json:"messages"`
+		Router   string              `json:"router"` // chomp extension: pick a router
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		fmt.Fprintf(w, `{"error":{"message":"invalid JSON: %s","type":"invalid_request_error"}}`, err.Error())
+		return
+	}
+	if len(body.Messages) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		fmt.Fprint(w, `{"error":{"message":"messages required","type":"invalid_request_error"}}`)
+		return
+	}
+
+	// Resolve router
+	router := body.Router
+	if router == "" || router == "auto" {
+		for _, rd := range routerDefs {
+			if os.Getenv(rd.EnvKey) != "" {
+				router = rd.ID
+				break
+			}
+		}
+		if router == "" || router == "auto" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(502)
+			fmt.Fprint(w, `{"error":{"message":"no router configured","type":"server_error"}}`)
+			return
+		}
+	}
+
+	rd := getRouter(router)
+	if rd == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		fmt.Fprintf(w, `{"error":{"message":"unknown router: %s","type":"invalid_request_error"}}`, router)
+		return
+	}
+
+	// Resolve model
+	model := body.Model
+	if model == "" || model == "auto" {
+		var err error
+		model, err = pickDefaultModel(router)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(502)
+			fmt.Fprintf(w, `{"error":{"message":"%s","type":"server_error"}}`, err.Error())
+			return
+		}
+	}
+
+	// Extract system + user prompt from messages
+	var system, prompt string
+	for _, m := range body.Messages {
+		switch m["role"] {
+		case "system":
+			system = m["content"]
+		case "user":
+			prompt = m["content"]
+		}
+	}
+	if prompt == "" {
+		// Use last message as prompt regardless of role
+		if len(body.Messages) > 0 {
+			prompt = body.Messages[len(body.Messages)-1]["content"]
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	result, tokIn, tokOut, err := callRouter(ctx, router, model, system, prompt)
+	latency := time.Since(start).Milliseconds()
+
+	if err != nil {
+		log.Printf("[v1] %s/%s failed (%dms): %v", router, model, latency, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(502)
+		fmt.Fprintf(w, `{"error":{"message":"%s","type":"upstream_error"}}`, err.Error())
+		return
+	}
+
+	log.Printf("[v1] %s/%s %d→%d tokens, %dms", router, model, tokIn, tokOut, latency)
+
+	// Return standard OpenAI response format
+	resp := map[string]interface{}{
+		"id":      fmt.Sprintf("chomp-%d", time.Now().UnixNano()),
+		"object":  "chat.completion",
+		"created": time.Now().Unix(),
+		"model":   model,
+		"choices": []map[string]interface{}{
+			{
+				"index":         0,
+				"message":       map[string]string{"role": "assistant", "content": result},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]int{
+			"prompt_tokens":     tokIn,
+			"completion_tokens": tokOut,
+			"total_tokens":      tokIn + tokOut,
+		},
+		// chomp extensions
+		"router":     router,
+		"latency_ms": latency,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// v1Models handles GET /v1/models — aggregates models from all configured routers.
+func v1Models(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+
+	type modelEntry struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		OwnedBy string `json:"owned_by"`
+	}
+
+	var models []modelEntry
+	for _, rd := range routerDefs {
+		if os.Getenv(rd.EnvKey) == "" {
+			continue
+		}
+		rModels, err := fetchRouterModels(rd.ID)
+		if err != nil {
+			continue
+		}
+		for _, m := range rModels {
+			models = append(models, modelEntry{
+				ID:      rd.ID + "/" + m.ID,
+				Object:  "model",
+				OwnedBy: rd.ID,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "list",
+		"data":   models,
+	})
+}
+
 // apiPlatforms returns real platform status as JSON.
 func apiPlatforms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -2379,6 +2547,10 @@ func main() {
 	mux.HandleFunc("/api/dispatch", apiDispatch)
 	mux.HandleFunc("/api/result/", apiResult)
 	mux.HandleFunc("/api/jobs", apiJobs)
+
+	// OpenAI-compatible proxy — the core product
+	mux.HandleFunc("/v1/chat/completions", v1ChatCompletions)
+	mux.HandleFunc("/v1/models", v1Models)
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)
 	log.Fatal(http.ListenAndServe(":"+port, mux))

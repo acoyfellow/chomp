@@ -3,7 +3,7 @@ import Layout from '../../layouts/Layout.astro'
 import Nav from '../../components/Nav.astro'
 import Code from '../../components/Code.astro'
 
-const dispatchResp = `{"id": "m1a2b3c4", "model": "stepfun/step-3.5-flash:free", "status": "running"}`
+const dispatchResp = `{"id": "m1a2b3c4", "model": "llama-3.3-70b-versatile", "router": "groq", "status": "running"}`
 const errors = [
   { status: '400', body: '{"error":"prompt required"}', cause: 'Missing prompt field' },
   { status: '401', body: '{"error":"unauthorized"}', cause: 'Missing or invalid bearer token' },
@@ -25,7 +25,7 @@ const errors = [
     <p class="text-zinc-500 dark:text-zinc-400 mb-4">Base URL: <code class="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-sm">https://chomp.coey.dev</code></p>
 
     <div class="mb-8 p-4 rounded-xl border-l-4 border-gold bg-zinc-50 dark:bg-zinc-900 text-sm">
-      <strong class="text-gold">BYO key.</strong> Register your OpenRouter key via <code>POST /api/keys</code> to get a chomp token. All other endpoints (except <code>/api/models/free</code>) require <code>Authorization: Bearer &lt;token&gt;</code>.
+      <strong class="text-gold">BYO key.</strong> Chomp supports 7 routers: OpenCode Zen, Groq, Cerebras, SambaNova, Together, Fireworks, and OpenRouter. Configure your API keys via the <a href="/dashboard" class="underline text-blue-500">dashboard</a> or <code>POST /api/keys</code> to get a chomp token. All other endpoints (except <code>/api/models/free</code>) require <code>Authorization: Bearer &lt;token&gt;</code>.
     </div>
 
     <!-- POST /api/keys -->
@@ -82,6 +82,7 @@ const errors = [
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">prompt</td><td class="px-4 py-2">string</td><td class="px-4 py-2">The prompt to send. <span class="text-xs font-bold text-red-500 uppercase">Required</span></td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">model</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Model ID, or "auto" (default). Auto picks the free model with the largest context window.</td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">system</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Optional system prompt prepended to the conversation.</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">router</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Router to use: <code>zen</code>, <code>groq</code>, <code>cerebras</code>, <code>sambanova</code>, <code>together</code>, <code>fireworks</code>, <code>openrouter</code>, or <code>auto</code> (default). Auto picks the first configured router.</td></tr>
           </tbody>
         </table>
       </div>
@@ -116,6 +117,7 @@ const errors = [
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">id</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Job ID</td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">status</td><td class="px-4 py-2">string</td><td class="px-4 py-2">running | done | error</td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">model</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Model ID used</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">router</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Which router served this job</td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">prompt</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Original prompt</td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">result</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Model response (when done)</td></tr>
             <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">error</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Error message (when error)</td></tr>
@@ -138,13 +140,38 @@ const errors = [
       <p class="text-zinc-600 dark:text-zinc-400 mb-4">Returns the 50 most recent jobs, newest first. Same schema as /api/result/:id, wrapped in an array.</p>
     </section>
 
+    <!-- GET /api/models/:router -->
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">GET</span>
+        <code class="text-lg font-semibold">/api/models/:router</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Returns available models for any router. Pass the router slug as the path parameter: <code>zen</code>, <code>groq</code>, <code>cerebras</code>, <code>sambanova</code>, <code>together</code>, <code>fireworks</code>, or <code>openrouter</code>.</p>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Response schema</h3>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Field</th><th class="text-left px-4 py-2">Type</th><th class="text-left px-4 py-2">Description</th></tr></thead>
+          <tbody>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">router</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Router slug that was queried</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">count</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Number of models available</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models</td><td class="px-4 py-2">array</td><td class="px-4 py-2">Array of model objects</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].id</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Full model ID (pass to /api/dispatch)</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].name</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Human-readable model name</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].context_length</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Maximum context window in tokens</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].max_output</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Maximum output tokens (0 if unknown)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- GET /api/models/free -->
     <section class="mb-12">
       <div class="flex items-center gap-2 mb-3">
         <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">GET</span>
         <code class="text-lg font-semibold">/api/models/free</code>
       </div>
-      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Returns currently available free models on OpenRouter. <strong>No authentication required.</strong> Cached for 15 minutes.</p>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Returns currently available free models on OpenRouter specifically. <strong>No authentication required.</strong> Cached for 15 minutes. For other routers, use <code>/api/models/:router</code>.</p>
 
       <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Response schema</h3>
       <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">

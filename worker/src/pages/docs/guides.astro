@@ -5,10 +5,10 @@ import Code from '../../components/Code.astro'
 ---
 <Layout
   title="Guides"
-  description="How to fan out prompts, poll with backoff, use system prompts, and integrate chomp as an agent tool."
+  description="How to fan out prompts across routers, poll with backoff, use system prompts, integrate chomp as an agent tool, and pick the right router."
   path="/docs/guides"
   type="article"
-  keywords="how-to, guides, fan out, rate limits, system prompts, agent"
+  keywords="how-to, guides, fan out, routers, rate limits, system prompts, agent, groq, zen, openrouter"
 >
   <Nav active="/docs/guides" />
   <main class="max-w-3xl mx-auto px-5 py-12">
@@ -19,21 +19,22 @@ import Code from '../../components/Code.astro'
     <section class="space-y-12">
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How to fan out a prompt across multiple models</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Dispatch the same prompt to several models in parallel, then compare responses.</p>
+        <h2 class="text-xl font-bold mb-3">How to fan out a prompt across routers</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Dispatch the same prompt to multiple routers in parallel to compare speed and quality across providers.</p>
         <Code code={`#!/bin/bash
-MODELS=("stepfun/step-3.5-flash:free" "deepseek/deepseek-r1-0528:free" "arcee-ai/trinity-large-preview:free")
+ROUTERS=("groq" "zen" "openrouter")
 PROMPT="Explain the CAP theorem in 2 sentences."
 
-# Dispatch all in parallel
-for model in "$" {MODELS[@]}""; do
+# Dispatch to all routers in parallel
+for router in "$" {ROUTERS[@]}""; do
+  echo "\u2192 $router"
   curl -s -X POST https://chomp.coey.dev/api/dispatch \\
     -H "Authorization: Bearer $CHOMP_TOKEN" \\
     -H "Content-Type: application/json" \\
-    -d "{\\"prompt\\": \\"$PROMPT\\", \\"model\\": \\"$model\\"}" &amp;
+    -d "{\\"prompt\\": \\"$PROMPT\\", \\"router\\": \\"$router\\"}" &amp;
 done
 wait`} />
-        <p class="mt-3 text-zinc-600 dark:text-zinc-400">Each dispatch returns immediately. Poll all job IDs until all are <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">done</code>, then compare results.</p>
+        <p class="mt-3 text-zinc-600 dark:text-zinc-400">Each dispatch returns immediately. Poll all job IDs until all are <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">done</code>, then compare latency and output across routers.</p>
       </div>
 
       <div>
@@ -48,18 +49,64 @@ wait`} />
         <Code code={`curl -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d '{\n    "system": "Reply only in valid JSON.",\n    "prompt": "List 3 sorting algorithms with time complexity."\n  }'`} />
+  -d '{\n    "router": "groq",\n    "system": "Reply only in valid JSON.",\n    "prompt": "List 3 sorting algorithms with time complexity."\n  }'`} />
       </div>
 
       <div>
         <h2 class="text-xl font-bold mb-3">How to use chomp as an agent’s tool</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">An orchestrating agent can delegate subtasks to free models to preserve its own context window.</p>
-        <Code code={`# Dispatch a bounded subtask\nJOB=$(curl -s -X POST https://chomp.coey.dev/api/dispatch \\
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">An orchestrating agent can delegate subtasks to free models to preserve its own context window. Pick a router that fits the task — <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">zen</code> gives access to premium models on a free tier.</p>
+        <Code code={`# Dispatch a bounded subtask via the zen router\nJOB=$(curl -s -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d '{"system": "Summarize in 3 bullet points.",\n       "prompt": "...file contents here..."}')\n\nJOB_ID=$(echo $JOB | jq -r .id)\n\n# Poll, then inject result into the agent context\nsleep 10\ncurl -s https://chomp.coey.dev/api/result/$JOB_ID \\
+  -d '{"router": "zen",\n       "system": "Summarize in 3 bullet points.",\n       "prompt": "...file contents here..."}')
+
+JOB_ID=$(echo $JOB | jq -r .id)\n\n# Poll, then inject result into the agent context\nsleep 10\ncurl -s https://chomp.coey.dev/api/result/$JOB_ID \\
   -H "Authorization: Bearer $CHOMP_TOKEN" | jq -r .result`} />
         <p class="mt-3 text-zinc-600 dark:text-zinc-400">The orchestrator only sees the 3-bullet summary, not the entire file. Context preserved.</p>
+      </div>
+
+      <div>
+        <h2 class="text-xl font-bold mb-3">How to pick the right router</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Chomp has 7 routers. Pass <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">"router"</code> in your dispatch request to choose one.</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left border-collapse">
+            <thead>
+              <tr class="border-b border-zinc-300 dark:border-zinc-700">
+                <th class="py-2 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">Router</th>
+                <th class="py-2 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">Best for</th>
+                <th class="py-2 font-semibold text-zinc-800 dark:text-zinc-200">Notes</th>
+              </tr>
+            </thead>
+            <tbody class="text-zinc-600 dark:text-zinc-400">
+              <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">groq</td>
+                <td class="py-2 pr-4">Fastest responses</td>
+                <td class="py-2">LPU hardware, 30 req/min free tier. Best for quick tasks and low-latency workflows.</td>
+              </tr>
+              <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">zen</td>
+                <td class="py-2 pr-4">Free premium models</td>
+                <td class="py-2">Access to GPT-5-nano, Claude, and others on a free tier. Good all-rounder.</td>
+              </tr>
+              <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">openrouter</td>
+                <td class="py-2 pr-4">Most model variety</td>
+                <td class="py-2">Hundreds of models. Free <code class="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs">:free</code> models rotate weekly.</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">auto</td>
+                <td class="py-2 pr-4">Sensible default</td>
+                <td class="py-2">Chomp picks the first configured router. Use when you don't have a preference.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <Code code={`# Use groq for speed
+curl -X POST https://chomp.coey.dev/api/dispatch \\
+  -H "Authorization: Bearer $CHOMP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"router": "groq", "prompt": "What is 2+2?"}'`} />
+        <p class="mt-3 text-zinc-600 dark:text-zinc-400">Omit the <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">router</code> field to use <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">auto</code> by default.</p>
       </div>
 
     </section>

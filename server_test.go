@@ -1570,3 +1570,108 @@ func TestJobHasRouterField(t *testing.T) {
 		t.Fatalf("expected router field in JSON: %s", data)
 	}
 }
+
+// --- OpenAI-compatible proxy tests ---
+
+func TestV1ChatCompletions_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/chat/completions", nil)
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 405 {
+		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestV1ChatCompletions_EmptyMessages(t *testing.T) {
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"model":"auto","messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestV1ChatCompletions_InvalidJSON(t *testing.T) {
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`not json`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestV1ChatCompletions_UnknownRouter(t *testing.T) {
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"model":"x","router":"nope","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestV1ChatCompletions_NoRouterConfigured(t *testing.T) {
+	saved := make(map[string]string)
+	for _, rd := range routerDefs {
+		if v := os.Getenv(rd.EnvKey); v != "" {
+			saved[rd.EnvKey] = v
+			os.Unsetenv(rd.EnvKey)
+		}
+	}
+	defer func() { for k, v := range saved { os.Setenv(k, v) } }()
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions",
+		strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	v1ChatCompletions(w, req)
+	if w.Code != 502 {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+}
+
+func TestV1Models_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest("POST", "/v1/models", nil)
+	w := httptest.NewRecorder()
+	v1Models(w, req)
+	if w.Code != 405 {
+		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestV1Models_ReturnsOpenAIFormat(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	w := httptest.NewRecorder()
+	v1Models(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var result struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID      string `json:"id"`
+			Object  string `json:"object"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Object != "list" {
+		t.Errorf("expected object=list, got %s", result.Object)
+	}
+	// All entries should have owned_by matching a router ID
+	for _, m := range result.Data {
+		if m.Object != "model" {
+			t.Errorf("model %s has object=%s, want model", m.ID, m.Object)
+		}
+		if getRouter(m.OwnedBy) == nil {
+			t.Errorf("model %s owned_by unknown router %s", m.ID, m.OwnedBy)
+		}
+	}
+}

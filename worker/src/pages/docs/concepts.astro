@@ -4,10 +4,10 @@ import Nav from '../../components/Nav.astro'
 ---
 <Layout
   title="Concepts"
-  description="How free models work on OpenRouter, async dispatch architecture, the BYO key model, and the context window problem."
+  description="How chomp's multi-router architecture works — 7 OpenAI-compatible routers, auto-selection, BYO keys, and the context window problem."
   path="/docs/concepts"
   type="article"
-  keywords="free models, OpenRouter, async, BYO key, context window, architecture"
+  keywords="multi-router, Groq, Cerebras, SambaNova, Together, Fireworks, OpenRouter, Zen, auto-selection, BYO key, context window, architecture"
 >
   <Nav active="/docs/concepts" />
   <main class="max-w-3xl mx-auto px-5 py-12 [&_p]:text-zinc-600 dark:[&_p]:text-zinc-400 [&_p]:mb-4 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:pb-3 [&_h2]:border-b [&_h2]:border-zinc-200 dark:[&_h2]:border-zinc-800">
@@ -16,14 +16,14 @@ import Nav from '../../components/Nav.astro'
     <p class="!text-zinc-500 mb-10">How chomp works, and why it’s designed this way.</p>
 
     <h2>What are free models?</h2>
-    <p>OpenRouter is an API aggregator that routes requests to AI model providers. Some providers offer models for free — either as promotional deals, open-source model hosting, or as loss leaders to attract users to their platform.</p>
-    <p>Free models are identified by an <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">:free</code> suffix on their model ID. There are typically 20–30 free models available at any time. The roster rotates — a model that’s free this week might not be next week, and new ones appear regularly.</p>
-    <p>These aren’t toy models. At time of writing, free models include DeepSeek R1 (a reasoning model comparable to o1), Qwen3 Coder 480B (a massive code model), and various 70B–120B parameter models.</p>
+    <p>Free models come from multiple sources across chomp’s router network. OpenRouter offers 20–30 free models at any time (identified by a <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">:free</code> suffix). Groq provides a generous free tier with blazing-fast inference. OpenCode Zen offers free access to premium models. Cerebras, SambaNova, Together, and Fireworks each have their own free tiers or promotional models.</p>
+    <p>The roster rotates — a model that’s free this week might not be next week, and new ones appear regularly. Each router has different strengths: Groq is the fastest, Zen gives access to premium models at no cost, OpenRouter has the widest variety, and providers like Cerebras and SambaNova offer specialized hardware-accelerated inference.</p>
+    <p>These aren’t toy models. Free models across these routers include DeepSeek R1 (a reasoning model comparable to o1), Llama 3 70B on Groq (with sub-second latency), Qwen3 Coder 480B, and various 70B–120B parameter models.</p>
 
     <h2>How model auto-selection works</h2>
-    <p>When you dispatch a prompt with <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">model: "auto"</code> or omit the model field, chomp fetches the current list of free models from OpenRouter and picks the one with the largest context window.</p>
-    <p>This is a simple heuristic: larger context window generally correlates with larger, more capable models. It’s not always the best choice — a 256k-context flash model might be less capable than a 128k-context reasoning model. For tasks where quality matters, specify the model directly.</p>
-    <p>The model list is cached for 15 minutes to avoid hammering OpenRouter’s API.</p>
+    <p>When you dispatch a prompt with <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">router: "auto"</code> or omit the router field, chomp walks a <strong>router registry</strong> in priority order: Zen → Groq → Cerebras → SambaNova → Together → Fireworks → OpenRouter. It picks the first router that has a configured API key and dispatches using that router’s default model.</p>
+    <p>This means the best available router wins automatically. If you have a Groq key configured, you get Groq’s speed. If you only have an OpenRouter key, you still get a working free model. Each router defines its own default model — typically the strongest free option available on that platform.</p>
+    <p>You can also specify a router explicitly (e.g. <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">router: "groq"</code>) to bypass auto-selection and target a specific provider. For full control, set both the router and the model.</p>
 
     <h2>Why async dispatch?</h2>
     <p>Chomp’s dispatch endpoint returns immediately with a job ID, rather than waiting for the model to respond. This is a deliberate design choice for two reasons:</p>
@@ -31,19 +31,34 @@ import Nav from '../../components/Nav.astro'
     <p><strong>Timeout resilience.</strong> Free models can be slow. DeepSeek R1 regularly takes 30–60 seconds. Some providers have cold starts. An async design means the caller never hits HTTP timeouts, and can implement its own backoff strategy.</p>
 
     <h2>Rate limits and fair use</h2>
-    <p>Free models have rate limits set by their providers, enforced through OpenRouter. These are typically per-minute (requests and tokens) and per-day limits. When you hit them, the model returns HTTP 429.</p>
-    <p>Chomp does not currently handle rate limit retries automatically — the error propagates to the job result. The calling agent is responsible for retry logic. A future version may add automatic fallback to the next-best free model on 429.</p>
-    <p>Some providers also enforce data policies. If you see a 404 about "no endpoints matching your data policy", visit <a href="https://openrouter.ai/settings/privacy" class="text-gold hover:underline">OpenRouter privacy settings</a> and allow free model training data usage.</p>
+    <p>Each router has its own rate limits set by the underlying provider. These are typically per-minute (requests and tokens) and per-day limits. When you hit them, the provider returns HTTP 429.</p>
+    <p>Chomp does not currently handle rate limit retries automatically — the error propagates to the job result. The calling agent is responsible for retry logic. A future version may add automatic fallback to the next router in the registry on 429.</p>
+    <p>Some providers also enforce data policies. For OpenRouter specifically, if you see a 404 about “no endpoints matching your data policy”, visit <a href="https://openrouter.ai/settings/privacy" class="text-gold hover:underline">OpenRouter privacy settings</a> and allow free model training data usage.</p>
 
     <h2>The context window problem</h2>
     <p>Chomp exists because AI agents have finite context windows. A coding agent like Shelley (Claude) has ~200k tokens of context. Every file it reads, every tool output, every conversation turn eats into that budget.</p>
     <p>The pattern chomp enables: an orchestrating agent breaks a large task into bounded subtasks, dispatches each to a free model, and collects only the summarized results. The orchestrator’s context stays lean while the grunt work happens elsewhere at zero cost.</p>
-    <p>This is the "staff of agents" model. The orchestrator is the senior engineer who delegates; the free models are junior engineers who do bounded, well-scoped tasks.</p>
+    <p>This is the “staff of agents” model. The orchestrator is the senior engineer who delegates; the free models are junior engineers who do bounded, well-scoped tasks.</p>
 
     <h2>BYO key model</h2>
-    <p>Chomp never stores or manages AI provider subscriptions. You bring your own OpenRouter API key (free to create). When you register it, chomp stores the key in Cloudflare KV and gives you a chomp token. Every dispatch call uses <em>your</em> key to call OpenRouter. Your key, your rate limits, your usage.</p>
+    <p>Chomp never stores or manages AI provider subscriptions. You bring your own API keys for whichever routers you want to use. Each router has its own environment variable — <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">GROQ_API_KEY</code>, <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">OPENROUTER_API_KEY</code>, <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">ZEN_API_KEY</code>, and so on. When you register, chomp stores your keys in Cloudflare KV and gives you a chomp token. Every dispatch call uses <em>your</em> key for the selected router. Your keys, your rate limits, your usage.</p>
+    <p>You don’t need keys for every router — just the ones you want. If you only configure Groq, auto-selection uses Groq. If you configure all seven, you get maximum flexibility. Most routers offer free API keys.</p>
     <p>This means chomp is free to operate for the platform owner and free to use for users (since the models themselves are free). There’s no billing layer, no margin, no middleman markup.</p>
-    <p>The entire codebase is open source. If you don’t trust the hosted version, <a href="https://github.com" class="text-gold hover:underline">fork and deploy your own</a> — it’s one Astro project on Cloudflare Workers with a single KV namespace.</p>
+    <p>The entire codebase is open source. If you don’t trust the hosted version, <a href="https://github.com/acoyfellow/chomp" class="text-gold hover:underline">fork and deploy your own</a> — it’s one Astro project on Cloudflare Workers with a single KV namespace.</p>
+
+    <h2>The router registry</h2>
+    <p>Chomp treats every router as an OpenAI-compatible chat completions API. Under the hood, a router is just a base URL and an API key. This makes adding new routers trivial — if a provider exposes an OpenAI-compatible endpoint, it can be a chomp router in a few lines of config.</p>
+    <p>Currently there are 7 routers, each with different strengths:</p>
+    <ul class="list-disc pl-6 mb-4 text-zinc-600 dark:text-zinc-400 space-y-1">
+      <li><strong>OpenCode Zen</strong> — Free access to premium models, first in priority order</li>
+      <li><strong>Groq</strong> — Ultra-fast inference on custom LPU hardware, ideal for latency-sensitive tasks</li>
+      <li><strong>Cerebras</strong> — Wafer-scale hardware-accelerated inference</li>
+      <li><strong>SambaNova</strong> — High-throughput inference on custom silicon</li>
+      <li><strong>Together</strong> — Wide selection of open-source models with competitive pricing</li>
+      <li><strong>Fireworks</strong> — Optimized serving for open-source models</li>
+      <li><strong>OpenRouter</strong> — Aggregator with the widest model variety, last in priority order</li>
+    </ul>
+    <p>The registry is ordered by priority. Auto-selection walks this list top to bottom and picks the first router with a configured key. You can override this by specifying a router explicitly in your dispatch call.</p>
 
     <h2>Jobs and persistence</h2>
     <p>Jobs are stored in Cloudflare KV with a 24-hour TTL. After 24 hours, job results are garbage collected. If you need to retain results, save them on your end when you poll.</p>

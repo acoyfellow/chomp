@@ -5,27 +5,33 @@ import Code from '../../components/Code.astro'
 ---
 <Layout
   title="Send your first prompt"
-  description="5 minutes to dispatch a prompt to a free AI model. Register your OpenRouter key, send a prompt, poll for results."
+  description="5 minutes to dispatch a prompt to a free AI model. Pick a router (Groq, OpenCode Zen, OpenRouter, and more), send a prompt, poll for results."
   path="/docs"
   type="article"
-  keywords="tutorial, getting started, OpenRouter, free models, API"
+  keywords="tutorial, getting started, routers, Groq, OpenCode Zen, Cerebras, SambaNova, Together, Fireworks, OpenRouter, free models, API"
 >
   <Nav active="/docs" />
   <main class="max-w-3xl mx-auto px-5 py-12">
     <div class="text-sm font-semibold text-gold mb-2">Tutorial</div>
     <h1 class="text-3xl font-bold tracking-tight mb-2">Send your first prompt</h1>
-    <p class="text-zinc-500 dark:text-zinc-400 mb-10">5 minutes. You’ll register your OpenRouter key, dispatch a prompt to a free model, and get the response back.</p>
+    <p class="text-zinc-500 dark:text-zinc-400 mb-10">5 minutes. You’ll pick a router, dispatch a prompt to a free model, and get the response back.</p>
 
     <section class="space-y-10">
 
       <div>
-        <h2 class="text-lg font-bold mb-3">1. Get a free OpenRouter key</h2>
-        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Sign up at <a href="https://openrouter.ai/keys" class="text-gold hover:underline" target="_blank">openrouter.ai/keys</a> (free). Create an API key. It starts with <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">sk-or-</code>.</p>
+        <h2 class="text-lg font-bold mb-3">1. Choose a router &amp; get an API key</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Chomp supports 7 routers. Pick whichever suits you:</p>
+        <ul class="list-disc pl-6 space-y-2 mb-3 text-zinc-600 dark:text-zinc-400">
+          <li><strong>Groq</strong> (free, no credit card) — sign up at <a href="https://groq.com" class="text-gold hover:underline" target="_blank">groq.com</a>, create an API key.</li>
+          <li><strong>OpenCode Zen</strong> (free via OpenCode) — sign up at <a href="https://opencode.ai" class="text-gold hover:underline" target="_blank">opencode.ai</a>, get your key.</li>
+          <li><strong>OpenRouter</strong> (free tier) — sign up at <a href="https://openrouter.ai/keys" class="text-gold hover:underline" target="_blank">openrouter.ai/keys</a>, create an API key.</li>
+        </ul>
+        <p class="text-zinc-600 dark:text-zinc-400">Other routers: Cerebras, SambaNova, Together, and Fireworks. See the <a href="/docs/reference" class="text-gold hover:underline">API reference</a> for the full list.</p>
       </div>
 
       <div>
         <h2 class="text-lg font-bold mb-3">2. Register your key with chomp</h2>
-        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Trade your OpenRouter key for a chomp token. Your key is stored securely and never exposed in responses.</p>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Trade your router API key for a chomp token. Your key is stored securely and never exposed in responses.</p>
         <Code code={`curl -X POST https://chomp.coey.dev/api/keys \\
   -H "Content-Type: application/json" \\
   -d '{"openrouter_key": "sk-or-your-key-here"}'`} class="mb-3" />
@@ -37,13 +43,13 @@ import Code from '../../components/Code.astro'
 
       <div>
         <h2 class="text-lg font-bold mb-3">3. Dispatch a prompt</h2>
-        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Send a prompt. Chomp picks the best free model automatically.</p>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Send a prompt with your chosen router. You can also omit <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">router</code> and Chomp will auto-pick one.</p>
         <Code code={`curl -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d '{"prompt": "What is quicksort? Explain in 3 sentences."}'`} class="mb-3" />
+  -d '{"prompt": "What is quicksort? Explain in 3 sentences.", "router": "groq"}'`} class="mb-3" />
         <p class="mb-2 text-zinc-600 dark:text-zinc-400">You get back a job ID immediately:</p>
-        <Code code={`{\n  "id": "m1a2b3c4",\n  "model": "stepfun/step-3.5-flash:free",\n  "status": "running"\n}`} />
+        <Code code={`{\n  "id": "m1a2b3c4",\n  "router": "groq",\n  "model": "llama-3.3-70b-versatile",\n  "status": "running"\n}`} />
       </div>
 
       <div>
@@ -52,20 +58,22 @@ import Code from '../../components/Code.astro'
         <Code code={`curl https://chomp.coey.dev/api/result/m1a2b3c4 \\
   -H "Authorization: Bearer $CHOMP_TOKEN"`} class="mb-3" />
         <p class="mb-2 text-zinc-600 dark:text-zinc-400">When the status is <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">done</code>:</p>
-        <Code code={`{\n  "id": "m1a2b3c4",\n  "status": "done",\n  "model": "stepfun/step-3.5-flash:free",\n  "result": "Quicksort is a divide-and-conquer sorting...",\n  "tokens_in": 25,\n  "tokens_out": 87,\n  "latency_ms": 3200\n}`} />
+        <Code code={`{\n  "id": "m1a2b3c4",\n  "status": "done",\n  "router": "groq",\n  "model": "llama-3.3-70b-versatile",\n  "result": "Quicksort is a divide-and-conquer sorting...",\n  "tokens_in": 25,\n  "tokens_out": 87,\n  "latency_ms": 3200\n}`} />
       </div>
 
       <div>
-        <h2 class="text-lg font-bold mb-3">5. See what’s free right now</h2>
-        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Free models rotate weekly. Check what’s available (no auth needed):</p>
-        <Code code="curl https://chomp.coey.dev/api/models/free" />
+        <h2 class="text-lg font-bold mb-3">5. List models for any router</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Check which models are available for a given router (no auth needed):</p>
+        <Code code="curl https://chomp.coey.dev/api/models/groq" class="mb-3" />
+        <p class="mb-2 text-zinc-600 dark:text-zinc-400">Other examples:</p>
+        <Code code={`# OpenCode Zen models\ncurl https://chomp.coey.dev/api/models/zen\n\n# Free OpenRouter models\ncurl https://chomp.coey.dev/api/models/free`} />
       </div>
 
     </section>
 
     <div class="mt-12 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
       <div class="font-semibold mb-1">✅ You just burned free tokens</div>
-      <p class="text-sm text-zinc-500">That prompt used a free model through your own OpenRouter account. Chomp just routed it. Next: <a href="/docs/reference" class="text-gold hover:underline">API reference</a> or <a href="/docs/guides" class="text-gold hover:underline">guides</a>.</p>
+      <p class="text-sm text-zinc-500">That prompt used a free model through your chosen router. Chomp dispatched it — swap <code class="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs">groq</code> for any other router to try a different backend. Next: <a href="/docs/reference" class="text-gold hover:underline">API reference</a> or <a href="/docs/guides" class="text-gold hover:underline">guides</a>.</p>
     </div>
   </main>
 </Layout>

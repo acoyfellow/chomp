@@ -2,31 +2,37 @@
 import Layout from '../layouts/Layout.astro'
 import Nav from '../components/Nav.astro'
 
-const snippet = `<code><span class="text-zinc-500"># register your OpenRouter key, get a chomp token</span>
-curl -X POST https://chomp.coey.dev/api/keys \\
-  -d '{"openrouter_key": "sk-or-your-key"}'  
+const snippet = `<code><span class="text-zinc-500"># dispatch via OpenCode Zen (free models, no key needed)</span>
+curl -X POST https://chomp.coey.dev/api/dispatch \\
+  -H "Authorization: Bearer $CHOMP_TOKEN" \\
+  -d '{"prompt": "Explain quicksort in 3 sentences.", "router": "zen"}'
 
-<span class="text-zinc-500"># dispatch a prompt to the best free model</span>
+<span class="text-zinc-500"># or via OpenRouter (BYO key, more models)</span>
+curl -X POST https://chomp.coey.dev/api/dispatch \\
+  -H "Authorization: Bearer $CHOMP_TOKEN" \\
+  -d '{"prompt": "Explain quicksort in 3 sentences.", "router": "openrouter"}'
+
+<span class="text-zinc-500"># or let chomp pick the best available router</span>
 curl -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
   -d '{"prompt": "Explain quicksort in 3 sentences."}'</code>`
 ---
 <Layout
   title="Free AI Model Dispatch"
-  description="Bring your own OpenRouter key. Dispatch prompts to free AI models. Zero cost."
+  description="Two routers. 50+ free models. Zero cost."
   path="/"
-  keywords="free AI models, OpenRouter, API, LLM, dispatch, free tokens"
+  keywords="free AI models, OpenRouter, OpenCode Zen, API, LLM, dispatch, free tokens"
 >
   <Nav active="/" />
   <main class="max-w-3xl mx-auto px-5 py-16">
     <h1 class="text-4xl font-bold tracking-tight mb-3">chomp<span class="text-gold">.</span></h1>
-    <p class="text-xl text-zinc-500 dark:text-zinc-400 mb-10 max-w-lg">Bring your own OpenRouter key. Dispatch prompts to free AI models. Zero cost.</p>
+    <p class="text-xl text-zinc-500 dark:text-zinc-400 mb-10 max-w-lg">Two routers. 50+ free models. Zero cost.</p>
 
     <div class="grid sm:grid-cols-2 gap-4 mb-12">
       <a href="/docs" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-gold mb-1">Tutorial</div>
         <div class="font-semibold mb-1">Send your first prompt</div>
-        <div class="text-sm text-zinc-500">5 minutes. One curl command. Zero cost.</div>
+        <div class="text-sm text-zinc-500">5 minutes. Two routers. Zero cost.</div>
       </a>
       <a href="/docs/reference" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-blue-500 mb-1">Reference</div>
@@ -41,7 +47,7 @@ curl -X POST https://chomp.coey.dev/api/dispatch \\
       <a href="/docs/concepts" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-purple-500 mb-1">Explanation</div>
         <div class="font-semibold mb-1">Concepts</div>
-        <div class="text-sm text-zinc-500">How free models work, routing, rate limits.</div>
+        <div class="text-sm text-zinc-500">How routing works, free models, rate limits.</div>
       </a>
     </div>
 
