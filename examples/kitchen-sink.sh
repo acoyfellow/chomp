@@ -82,6 +82,7 @@ declare -A ROUTER_MODEL=(
   [sambanova]="Meta-Llama-3.3-70B-Instruct"
   [fireworks]="auto"
 )
+ROUTER_ORDER=(zen groq openrouter cerebras sambanova fireworks)
 
 # fire all in background
 for r in "${ROUTER_ORDER[@]}"; do
@@ -323,6 +324,7 @@ echo
 # [7/7] /api/models/:router — per-router model counts
 ###############################################################################
 echo -e "${BLD}[7/7] /api/models/:router${RST}"
+API_ROUTERS=(zen groq openrouter cerebras sambanova fireworks)
 for r in "${API_ROUTERS[@]}"; do
   (
     resp=$(curl -s --max-time 15 "$BASE/api/models/$r" -H "$AUTH" 2>&1) || resp=''
