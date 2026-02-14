@@ -1,244 +1,103 @@
-# Chomp Handoff — 2026-02-11
+# chomp — Handoff: Unify UX
 
-## What is chomp
+## Current State (2026-02-14)
 
-Task queue for AI agents. Feed tasks in, agents chew through them. Dashboard to watch. **The design spec is final** — don't redesign, just implement properly.
+**What exists:**
+- Go server (`server.go`, ~2500 lines, 89 tests) serving:
+  - `/v1/chat/completions` + `/v1/models` — OpenAI-compatible proxy ✅ THE PRODUCT
+  - `/api/dispatch`, `/api/result/:id`, `/api/jobs` — async dispatch ✅ KEEP
+  - `/api/models/:router`, `/api/models/free` — model listing ✅ KEEP
+  - `/api/config`, `/api/platforms` — status ✅ KEEP
+  - `/`, `/docs`, `/partials/*`, `/api/tasks/*` — HTMX dashboard ❌ REMOVE
+- Astro site (`worker/`) deployed to chomp.coey.dev via GitHub Actions ✅ KEEP
+- 6 live routers: Zen, Groq, Cerebras, SambaNova, Fireworks, OpenRouter (433 models)
+- CI: go vet + go test + tsc --noEmit + astro build → deploy
+- Pre-push hook, llms.txt, kitchen-sink test
 
-## Stack
+**The problem:** Two UIs. The Go server has an HTMX dashboard nobody needs. The Astro site is the real public face. The Go server should be API-only.
 
-- **Go `html/template`** — server-rendered, embedded via `go:embed`
-- **HTMX** — declarative interactivity, auto-polling, `HX-Trigger: refreshTasks` for instant UI updates
-- **Tailwind CSS** — standalone CLI (no Node), utility classes only
-- **Single binary** — templates + CSS embedded, Docker deploys to port 8000→8001
+## Task: Strip the Go server to API-only
 
-## Current state
+### 1. Remove from server.go:
+- All template/HTML handling: `pageIndex`, `pageDocs`, `partialsBalance`, `partialsTasks`, `partialsDetail`, `partialsSettings`, `partialsCreate`
+- Template parsing (`templateFS`, `tmpl`, `template.New`)
+- Static file serving (`serveCSS`, `serveHTMX`, `staticCSS`, `staticHTMX`)
+- All `/partials/*` and `/api/tasks/*` routes (task queue is dead weight)
+- The `embed` directives for templates and static files
+- Template helper functions: `fmtTokens`, `timeAgo`, `isStale`, `agentName`, `agentColorStr`
+- The task/session/state management: `Task`, `Session`, `State`, `readState`, `writeState`, `stateMu`, `stateFile`, etc.
+- Agent/adapter management: `builtinAgents`, `mergedAgents`, `AgentConfig`, adapters
+- Sandbox dispatch: `sandboxWorkerURL`, `apiSandboxOutput`, etc.
+- The `apiAddTask`, `apiRunTask`, `apiDoneTask`, `apiUpdateTask`, `apiHandoffTask`, `apiDeleteTask` handlers
+- Keys/agents file management: `keysFile`, `agentsFile`, `apiConfigKeys`, `apiConfigAgents`
 
-- ✅ 59 tests passing (`go test -count=1 -run . server_test.go server.go`)
-- ✅ Docker running on port 8000
-- ✅ Platform status board (real — no fake dollars, no theater)
-- ✅ Settings drawer with API key CRUD + agent install/remove UI
-- ✅ 4-step create wizard (prompt → agent → model → review)
-- ✅ Session tracking with handoff chaining (activity timeline in detail sheet)
-- ✅ PS5-style boot screen (wordmark fade, gold bar fill, app reveal)
-- ✅ Agent/model git commit trailers via `chomp done`
-- ✅ Per-task budget flag (300k token soft cap)
-- ✅ All metrics real: LIVE (active tasks), TASKS (total), BURNED (sum of tokens)
-- ✅ All task mutations send `HX-Trigger: refreshTasks` — instant UI refresh
+### 2. Keep in server.go:
+- `/v1/chat/completions` — the core product
+- `/v1/models` — aggregated model list
+- `/api/dispatch` + `/api/result/:id` + `/api/jobs` — async dispatch
+- `/api/models/:router` + `/api/models/free` — model listing
+- `/api/config` — but simplify to just show routers + their status
+- `/api/platforms` — router status
+- Router registry (`routerDefs`, `callOpenAICompat`, `callRouter`, etc.)
+- Auth (`v1Auth`, `requireAuth`)
+- Free model scanning for OpenRouter
+- Job management (in-memory jobs map)
 
-## Key files
+### 3. After stripping, the Go server should:
+- Serve ONLY JSON API endpoints (no HTML at all)
+- `/` should return `{"name":"chomp","version":"...","routers":6,"models":433}`
+- Be ~800-1000 lines instead of ~2500
+- Still pass all meaningful tests (delete dashboard tests)
 
-```
-server.go              # ALL server code (~1500 lines) - API + template handlers
-server_test.go         # 59 tests
-templates/layout.html  # Base HTML (Sora font, HTMX, Tailwind)
-templates/page.html    # App shell (boot screen, topbar, tabs, sheets, JS)
-templates/partials/    # HTMX fragments: balance, tasks, detail, settings, create
-static/input.css       # Tailwind input (includes boot keyframes)
-static/style.css       # Tailwind output
-bin/chomp              # CLI (bash + jq)
-adapters/              # Shell scripts: exedev.sh, opencode.sh
-Dockerfile             # Multi-stage Go build
-state/                 # Runtime: state.json, keys.json, agents.json
-```
+### 4. Delete from repo:
+- `templates/` directory (all .html files)
+- `static/` directory (CSS, HTMX)
+- `ui/` directory (already deleted)
+- `adapters/` directory (shell scripts for agent dispatch)
+- `bin/chomp` CLI (task queue CLI, not needed)
 
-## Data model
+### 5. Astro site (worker/) — explore API playground:
+- Consider adding a `/playground` page that calls the chomp API
+- User enters a prompt, picks a router, sees the response
+- Could call a hosted chomp instance or be a demo that shows curl commands
+- This is optional/exploratory — the docs are the priority
 
+## Key Files
+- `server.go` — the Go server (strip this)
+- `server_test.go` — tests (update to match stripped server)
+- `worker/` — Astro site (keep, maybe enhance)
+- `examples/kitchen-sink.sh` — integration test (keep)
+- `state/.env` — API keys (gitignored)
+- `.github/workflows/ci.yml` — CI pipeline
+- `gates/pre-push.sh` — pre-push hook
+
+## Router Registry (DO NOT CHANGE)
 ```go
-type Session struct {
-    ID, Agent, Model, StartedAt, EndedAt, Result, Summary string
-    Tokens int
-}
-type Task struct {
-    ID, Prompt, Dir, Status, Created, Result, Platform, Model string
-    Tokens int; BudgetExceeded bool; Sessions []Session
-}
-```
-
-Statuses: `queued` → `active` → `done`/`failed`. Handoff: `active` → `queued` (closes session).
-
-## API endpoints
-
-| Method | Path | Purpose |
-|--------|------|--------|
-| GET | /partials/balance | Platform status card |
-| GET | /partials/tasks?tab=active\|completed | Task list |
-| GET | /partials/detail/{id} | Task detail + session timeline |
-| GET | /partials/settings | Settings + agent install |
-| GET | /partials/create?step=1-4 | Wizard steps |
-| GET | /api/platforms | Real platform statuses |
-| POST | /api/tasks | Create task |
-| POST | /api/tasks/run | Start task (creates session) |
-| POST | /api/tasks/update | Update tokens |
-| POST | /api/tasks/done | Complete (closes session) |
-| POST | /api/tasks/handoff | Close session, re-queue |
-| POST | /api/tasks/delete | Delete task |
-| POST | /api/config/agents | Add/delete custom agent |
-| POST | /api/config/keys | Set/delete API key |
-
-## Build & deploy
-
-```bash
-cd /home/exedev/chomp
-tailwindcss -i static/input.css -o static/style.css --minify
-go build -o chomp-server server.go
-go test -count=1 -run . server_test.go server.go
-docker stop chomp; docker rm chomp
-docker build -t chomp .
-docker run -d --name chomp --restart unless-stopped -p 8000:8001 -v /home/exedev/chomp/state:/app/state chomp
-docker image prune -f
-```
-
----
-
-## NEXT: Cloudflare Sandbox Dispatch
-
-**This is the priority. Full Cloudflare account access confirmed.**
-
-### What we're building
-
-Tap ▶ on a task → Cloudflare Sandbox spins up → AI agent runs inside → live terminal in dashboard → agent calls chomp API when done.
-
-### Architecture
-
-```
-Dashboard (Go, exe.dev :8000)       Cloudflare Edge
-┌──────────────────────┐    ┌──────────────────────────────────┐
-│ Go server            │    │ Worker (TypeScript)              │
-│  POST /api/tasks/run │───>│  /dispatch → getSandbox()        │
-│                      │    │  /ws/terminal → sandbox.terminal()│
-│ templates/page.html  │    │  /status → sandbox.exec() ping   │
-│  └─ xterm.js widget  │<──>│  WebSocket proxy                 │
-│                      │    │                                  │
-│ state.json           │    │ Sandbox (Ubuntu container)        │
-│                      │    │  ├─ agent (shelley/pi/opencode)  │
-│                      │    │  ├─ git repo (cloned)            │
-│                      │    │  ├─ chomp CLI (calls back)       │
-│                      │    │  └─ keepAlive: true              │
-└──────────────────────┘    └──────────────────────────────────┘
-```
-
-### Sandbox SDK key facts
-
-- **Container:** Isolated Ubuntu, full Linux env (Node, Bun, git, curl built-in)
-- **Base images:** `cloudflare/sandbox:0.7.0` (default), `-python`, `-opencode`
-- **Custom Dockerfile:** Extend base, install pi/shelley/anything
-- **`exec(cmd)`:** Run commands, stream output, set env/cwd/timeout
-- **`terminal(request)`:** WebSocket → xterm.js live terminal in browser
-- **`gitCheckout(url)`:** Clone repos, supports private (token in URL), branches, shallow
-- **`keepAlive: true`:** Auto-heartbeat every 30s, container stays up
-- **`startProcess(cmd)`:** Background processes
-- **`destroy()`:** Kill container immediately
-- **Sleeps after 10min idle** — all state lost. Use R2 for persistence.
-- **Workers Paid required.** WebSocket transport avoids subrequest limits.
-
-### Implementation phases
-
-**Phase 1: Worker scaffold (`chomp-sandbox/`) ✅ DONE**
-- New Worker project with Sandbox binding
-- Custom Dockerfile: base image + `pi` + `chomp` CLI
-- Endpoints: `/dispatch`, `/status/:id`, `/kill/:id` (terminal deferred to Phase 3)
-- Deployed to https://chomp-sandbox.coy.workers.dev
-- All endpoints tested and working
-
-**Phase 2: Go server integration ✅ DONE**
-- `apiRunTask` → POST to Worker `/dispatch` with task details
-- Store `sandbox_id` on Session, `repo_url` on Task
-- Agent in sandbox calls back: `curl $CHOMP_API/api/tasks/update`
-- TestSandboxDispatch with mock Worker (60 tests passing)
-- Docker rebuilt and redeployed
-
-**Phase 3: Live sandbox output ✅ DONE**
-- Sandbox output viewer in detail sheet (auto-polls every 5s)
-- `/api/sandbox/output/:taskId` proxies agent logs from Worker
-- ANSI escape code stripping for clean display
-- Green-on-dark terminal aesthetic with sandbox ID indicator
-- `/exec/:sandboxId` and `/logs/:sandboxId/:processId` Worker endpoints
-- Note: `terminal()` method not in SDK 0.7.0; using exec/logs API instead
-
-**Phase 4: Gate verification loop ✅ DONE**
-- run-agent checks for `gates/health.sh` after agent completes
-- Pass → `chomp done`. Fail → re-run agent with gate output injected
-- Configurable MAX_GATE_LOOPS (default 3), then marks failed
-- Deployed to Cloudflare
-
-**Phase 5: Pi adapter ✅ DONE**
-- `pi` installed in Dockerfile (`npm i -g @mariozechner/pi-coding-agent`)
-- CLI: `pi --message "prompt" --dir /workspace/repo`
-- Verified working in live sandbox (v0.52.9 installed, launches correctly)
-- API keys forwarded from Worker secrets
-
-### Sandbox dispatch pseudocode
-
-```typescript
-import { getSandbox, type Sandbox } from '@cloudflare/sandbox';
-export { Sandbox } from '@cloudflare/sandbox';
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === '/dispatch' && request.method === 'POST') {
-      const { taskId, prompt, agent, model, repoUrl, dir } = await request.json();
-      const sandbox = getSandbox(env.Sandbox, `task-${taskId}`, { keepAlive: true });
-
-      if (repoUrl) {
-        await sandbox.gitCheckout(repoUrl, { depth: 1, targetDir: '/workspace/repo' });
-      }
-
-      // Start agent in background
-      await sandbox.startProcess(
-        `CHOMP_API=${env.CHOMP_API} TASK_ID=${taskId} run-agent ${agent} ${model} "${prompt}"`,
-      );
-
-      return Response.json({ sandboxId: `task-${taskId}`, status: 'started' });
-    }
-
-    if (url.pathname.startsWith('/ws/terminal/')) {
-      const sandboxId = url.pathname.split('/').pop();
-      const sandbox = getSandbox(env.Sandbox, sandboxId!);
-      return sandbox.terminal(request, { cols: 120, rows: 30 });
-    }
-
-    if (url.pathname.startsWith('/kill/')) {
-      const sandboxId = url.pathname.split('/').pop();
-      const sandbox = getSandbox(env.Sandbox, sandboxId!);
-      await sandbox.destroy();
-      return Response.json({ status: 'destroyed' });
-    }
-
-    return new Response('not found', { status: 404 });
-  }
-};
-```
-
-### Wrangler config
-
-```jsonc
-{
-  "name": "chomp-sandbox",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
-  "containers": [{ "class_name": "Sandbox", "image": "./Dockerfile", "max_instances": 5 }],
-  "durable_objects": { "bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }] },
-  "vars": { "SANDBOX_TRANSPORT": "websocket", "CHOMP_API": "https://jordan.exe.xyz:8000" },
-  "migrations": [{ "tag": "v1", "new_classes": ["Sandbox"] }]
+routerDefs = []RouterDef{
+    {ID: "zen",        BaseURL: "https://opencode.ai/zen/v1",           EnvKey: "OPENCODE_ZEN_API_KEY"},
+    {ID: "groq",       BaseURL: "https://api.groq.com/openai/v1",      EnvKey: "GROQ_API_KEY"},
+    {ID: "cerebras",   BaseURL: "https://api.cerebras.ai/v1",           EnvKey: "CEREBRAS_API_KEY"},
+    {ID: "sambanova",  BaseURL: "https://api.sambanova.ai/v1",          EnvKey: "SAMBANOVA_API_KEY"},
+    {ID: "fireworks",  BaseURL: "https://api.fireworks.ai/inference/v1", EnvKey: "FIREWORKS_API_KEY"},
+    {ID: "openrouter", BaseURL: "https://openrouter.ai/api/v1",         EnvKey: "OPENROUTER_API_KEY"},
 }
 ```
 
-### Dockerfile
-
-```dockerfile
-FROM docker.io/cloudflare/sandbox:0.7.0
-RUN npm install -g @mariozechner/pi-coding-agent
-COPY bin/chomp /usr/local/bin/chomp
-COPY bin/run-agent /usr/local/bin/run-agent
-RUN chmod +x /usr/local/bin/chomp /usr/local/bin/run-agent
+## Env Vars
+```
+CHOMP_API_TOKEN=xxx          # Bearer token for all endpoints
+OPENCODE_ZEN_API_KEY=xxx     # OpenCode Zen
+GROQ_API_KEY=xxx             # Groq
+CEREBRAS_API_KEY=xxx         # Cerebras
+SAMBANOVA_API_KEY=xxx        # SambaNova
+FIREWORKS_API_KEY=xxx        # Fireworks
+OPENROUTER_API_KEY=xxx       # OpenRouter
 ```
 
-### Critical rules
-
-- **No theater.** Every number shown must come from real data.
-- **Run tests before committing.** Small commits after each meaningful change.
-- **Disk is tight (~19GB).** Clean Docker images, go cache, node_modules regularly.
-- **No `confirm()` dialogs.** No `position:fixed/absolute` for layout.
-- Read AGENTS.md for full project context.
+## After completion:
+- `go vet ./...` passes
+- `go test` passes (all tests updated)
+- `kitchen-sink.sh` still works
+- Astro site builds and deploys
+- Pre-push hook passes
+- Commit and push
