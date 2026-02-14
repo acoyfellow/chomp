@@ -1332,3 +1332,63 @@ func TestSandboxOutputEndpoint(t *testing.T) {
 		t.Fatal("ANSI codes should be stripped")
 	}
 }
+
+func TestFreeModelsEndpoint(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/models/free", nil)
+	w := httptest.NewRecorder()
+	apiFreeModels(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result struct {
+		Count  int         `json:"count"`
+		Models []FreeModel `json:"models"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+
+	// Should have found some free models (OpenRouter always has some)
+	if result.Count == 0 {
+		t.Log("warning: no free models found (may be network issue)")
+	}
+
+	// All returned models should end with :free
+	for _, m := range result.Models {
+		if !strings.HasSuffix(m.ID, ":free") {
+			t.Errorf("model %s doesn't end with :free", m.ID)
+		}
+	}
+}
+
+func TestFreeModelsEndpoint_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/models/free", nil)
+	w := httptest.NewRecorder()
+	apiFreeModels(w, req)
+	if w.Code != 405 {
+		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestBuiltinAgentsIncludeCursorAndClaude(t *testing.T) {
+	agents := builtinAgents()
+
+	expected := []string{"shelley", "opencode", "pi", "cursor", "claude-code", "codex"}
+	for _, id := range expected {
+		if _, ok := agents[id]; !ok {
+			t.Errorf("missing builtin agent: %s", id)
+		}
+	}
+
+	// Cursor should have the right color
+	if agents["cursor"].Color != "#00D1FF" {
+		t.Errorf("cursor color = %q, want #00D1FF", agents["cursor"].Color)
+	}
+
+	// Claude Code should use 'claude' command
+	if agents["claude-code"].Command != "claude" {
+		t.Errorf("claude-code command = %q, want claude", agents["claude-code"].Command)
+	}
+}

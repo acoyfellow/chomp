@@ -2,7 +2,7 @@ FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY go.mod server.go ./
 COPY templates/ templates/
-COPY static/style.css static/style.css
+COPY static/ static/
 RUN go build -o /chomp-server server.go
 
 FROM alpine:3.19

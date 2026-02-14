@@ -24,6 +24,9 @@ var templateFS embed.FS
 //go:embed static/style.css
 var staticCSS []byte
 
+//go:embed static/htmx.min.js
+var staticHTMX []byte
+
 var tmpl *template.Template
 
 type Session struct {
@@ -81,9 +84,12 @@ var (
 )
 
 var builtinAgentIDs = map[string]bool{
-	"shelley":  true,
-	"opencode": true,
-	"pi":       true,
+	"shelley":     true,
+	"opencode":    true,
+	"pi":          true,
+	"cursor":      true,
+	"claude-code": true,
+	"codex":       true,
 }
 
 var agentIDRegexp = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -311,6 +317,33 @@ func builtinAgents() map[string]AgentConfig {
 			Models:    []string{"claude-sonnet-4", "claude-opus-4", "gpt-4.1", "gemini-2.5-pro"},
 			Color:     "#E05D44",
 			Note:      "Not yet configured",
+		},
+		"cursor": {
+			Name:      "Cursor",
+			Builtin:   true,
+			Available: func() bool { _, err := exec.LookPath("agent"); return err == nil }(),
+			Command:   "agent",
+			Models:    []string{"gpt-5.2", "claude-sonnet-4", "gemini-2.5-pro"},
+			Color:     "#00D1FF",
+			Note:      "Cursor Pro/Business subscription",
+		},
+		"claude-code": {
+			Name:      "Claude Code",
+			Builtin:   true,
+			Available: func() bool { _, err := exec.LookPath("claude"); return err == nil }(),
+			Command:   "claude",
+			Models:    []string{"claude-sonnet-4", "claude-opus-4"},
+			Color:     "#D97706",
+			Note:      "Claude Max or API key",
+		},
+		"codex": {
+			Name:      "Codex",
+			Builtin:   true,
+			Available: func() bool { _, err := exec.LookPath("codex"); return err == nil }(),
+			Command:   "codex",
+			Models:    []string{"o3", "o4-mini", "gpt-4.1"},
+			Color:     "#10A37F",
+			Note:      "ChatGPT Pro or API key",
 		},
 	}
 }
@@ -1144,6 +1177,103 @@ func fetchOpenRouterCredits(apiKey string) (float64, error) {
 	return keyResp.Data.LimitRemaining, nil
 }
 
+// --- Free model scanning (OpenRouter :free models) ---
+
+type FreeModel struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ContextLength int    `json:"context_length"`
+	MaxOutput     int    `json:"max_output,omitempty"`
+	Created       int64  `json:"created,omitempty"`
+}
+
+var (
+	freeModelsCache   []FreeModel
+	freeModelsCachedAt time.Time
+	freeModelsMu       sync.Mutex
+)
+
+// fetchFreeModels queries OpenRouter for currently free models.
+func fetchFreeModels() ([]FreeModel, error) {
+	freeModelsMu.Lock()
+	defer freeModelsMu.Unlock()
+
+	// Cache for 15 minutes
+	if freeModelsCache != nil && time.Since(freeModelsCachedAt) < 15*time.Minute {
+		return freeModelsCache, nil
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://openrouter.ai/api/v1/models")
+	if err != nil {
+		return nil, fmt.Errorf("fetching models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			ContextLength int    `json:"context_length"`
+			TopProvider   struct {
+				MaxCompletionTokens int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
+			CreatedAt int64 `json:"created"`
+			Pricing   struct {
+				Prompt     string `json:"prompt"`
+				Completion string `json:"completion"`
+			} `json:"pricing"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding models: %w", err)
+	}
+
+	var free []FreeModel
+	for _, m := range result.Data {
+		if !strings.HasSuffix(m.ID, ":free") {
+			continue
+		}
+		// Skip tiny models (<10B params based on name heuristic)
+		name := strings.ToLower(m.Name)
+		if strings.Contains(name, "1b") || strings.Contains(name, "3b") || strings.Contains(name, "7b") || strings.Contains(name, "8b") {
+			// Allow "80b" etc but skip small ones
+			if !strings.Contains(name, "80b") && !strings.Contains(name, "70b") && !strings.Contains(name, "180b") {
+				continue
+			}
+		}
+		free = append(free, FreeModel{
+			ID:            m.ID,
+			Name:          m.Name,
+			ContextLength: m.ContextLength,
+			MaxOutput:     m.TopProvider.MaxCompletionTokens,
+			Created:       m.CreatedAt,
+		})
+	}
+
+	freeModelsCache = free
+	freeModelsCachedAt = time.Now()
+	return free, nil
+}
+
+// apiFreeModels returns the currently free OpenRouter models.
+func apiFreeModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+	models, err := fetchFreeModels()
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":  len(models),
+		"models": models,
+	})
+}
+
 // apiPlatforms returns real platform status as JSON.
 func apiPlatforms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1279,6 +1409,12 @@ func serveCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write(staticCSS)
+}
+
+func serveHTMX(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(staticHTMX)
 }
 
 // ── Platform status (real, no theater) ──
@@ -1680,6 +1816,7 @@ func main() {
 	// Pages
 	mux.HandleFunc("/", pageIndex)
 	mux.HandleFunc("/static/style.css", serveCSS)
+	mux.HandleFunc("/static/htmx.min.js", serveHTMX)
 	// Partials (HTMX)
 	mux.HandleFunc("/partials/balance", partialsBalance)
 	mux.HandleFunc("/partials/tasks", partialsTasks)
@@ -1699,6 +1836,7 @@ func main() {
 	mux.HandleFunc("/api/tasks/delete", apiDeleteTask)
 	mux.HandleFunc("/api/sandbox/output/", apiSandboxOutput)
 	mux.HandleFunc("/api/platforms", apiPlatforms)
+	mux.HandleFunc("/api/models/free", apiFreeModels)
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
