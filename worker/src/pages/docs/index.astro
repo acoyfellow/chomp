@@ -1,0 +1,64 @@
+---
+import Layout from '../../layouts/Layout.astro'
+import Nav from '../../components/Nav.astro'
+import Code from '../../components/Code.astro'
+---
+<Layout title="Tutorial — chomp">
+  <Nav active="/docs" />
+  <main class="max-w-3xl mx-auto px-5 py-12">
+    <div class="text-sm font-semibold text-gold mb-2">Tutorial</div>
+    <h1 class="text-3xl font-bold tracking-tight mb-2">Send your first prompt</h1>
+    <p class="text-zinc-500 dark:text-zinc-400 mb-10">5 minutes. You’ll dispatch a prompt to a free AI model and get the response back. All you need is curl and a token.</p>
+
+    <section class="space-y-10">
+
+      <div>
+        <h2 class="text-lg font-bold mb-3">1. Get your token</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Your API token authenticates requests. Set it as an environment variable:</p>
+        <Code code={`export CHOMP_TOKEN="your-token-here"`} />
+      </div>
+
+      <div>
+        <h2 class="text-lg font-bold mb-3">2. Dispatch a prompt</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Send a prompt. Chomp picks the best free model automatically.</p>
+        <Code code={`curl -X POST https://chomp.coey.dev/api/dispatch \\
+  -H "Authorization: Bearer $CHOMP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "What is quicksort? Explain in 3 sentences."}'`} class="mb-3" />
+        <p class="mb-2 text-zinc-600 dark:text-zinc-400">You get back a job ID immediately:</p>
+        <Code code={`{\n  "id": "m1a2b3c4",\n  "model": "stepfun/step-3.5-flash:free",\n  "status": "running"\n}`} />
+      </div>
+
+      <div>
+        <h2 class="text-lg font-bold mb-3">3. Poll for the result</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Wait a few seconds, then fetch the result using the job ID:</p>
+        <Code code={`curl https://chomp.coey.dev/api/result/m1a2b3c4 \\
+  -H "Authorization: Bearer $CHOMP_TOKEN"`} class="mb-3" />
+        <p class="mb-2 text-zinc-600 dark:text-zinc-400">When the status is <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">done</code>, the result is in the response:</p>
+        <Code code={`{\n  "id": "m1a2b3c4",\n  "status": "done",\n  "model": "stepfun/step-3.5-flash:free",\n  "result": "Quicksort is a divide-and-conquer sorting...",\n  "tokens_in": 25,\n  "tokens_out": 87,\n  "latency_ms": 3200\n}`} />
+      </div>
+
+      <div>
+        <h2 class="text-lg font-bold mb-3">4. Try a specific model</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Target a model directly instead of auto-selection:</p>
+        <Code code={`curl -X POST https://chomp.coey.dev/api/dispatch \\
+  -H "Authorization: Bearer $CHOMP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "What is 2+2?", "model": "deepseek/deepseek-r1-0528:free"}'`} />
+        <p class="mt-3 text-zinc-600 dark:text-zinc-400">DeepSeek R1 is a reasoning model — it thinks longer but gives more thorough answers. Expect 30–60 seconds.</p>
+      </div>
+
+      <div>
+        <h2 class="text-lg font-bold mb-3">5. See what’s free right now</h2>
+        <p class="mb-3 text-zinc-600 dark:text-zinc-400">Free models rotate weekly. Check what’s available (no auth needed):</p>
+        <Code code="curl https://chomp.coey.dev/api/models/free" />
+      </div>
+
+    </section>
+
+    <div class="mt-12 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+      <div class="font-semibold mb-1">✅ You just burned free tokens</div>
+      <p class="text-sm text-zinc-500">That prompt cost you nothing. Next: read the <a href="/docs/reference" class="text-gold hover:underline">API reference</a> for every parameter, or the <a href="/docs/guides" class="text-gold hover:underline">guides</a> for real-world patterns.</p>
+    </div>
+  </main>
+</Layout>

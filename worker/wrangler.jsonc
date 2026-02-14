@@ -1,0 +1,22 @@
+{
+  "name": "chomp",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "dist/_worker.js/index.js",
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "JOBS",
+      "id": "cc43a22b64034fe99916f2bf46e01382"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "chomp.coey.dev",
+      "custom_domain": true
+    }
+  ]
+}

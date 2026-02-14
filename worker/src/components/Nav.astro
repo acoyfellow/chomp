@@ -1,0 +1,29 @@
+---
+const { active = '' } = Astro.props
+const links = [
+  { href: '/', label: 'Home' },
+  { href: '/docs', label: 'Tutorial' },
+  { href: '/docs/reference', label: 'Reference' },
+  { href: '/docs/guides', label: 'Guides' },
+  { href: '/docs/concepts', label: 'Concepts' },
+]
+---
+<nav class="border-b border-zinc-200 dark:border-zinc-800">
+  <div class="max-w-3xl mx-auto px-5 flex items-center gap-6 h-14">
+    <a href="/" class="text-lg font-bold tracking-tight shrink-0">chomp<span class="text-gold">.</span></a>
+    <div class="flex gap-1 overflow-x-auto text-sm font-medium">
+      {links.map(l => (
+        <a
+          href={l.href}
+          class:list={[
+            'px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors',
+            active === l.href
+              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+          ]}
+        >{l.label}</a>
+      ))}
+    </div>
+    <button onclick="toggleTheme()" class="ml-auto shrink-0 w-8 h-8 rounded-full border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-zinc-400 text-sm cursor-pointer">☾</button>
+  </div>
+</nav>

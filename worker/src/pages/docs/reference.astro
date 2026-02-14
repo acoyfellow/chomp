@@ -1,0 +1,141 @@
+---
+import Layout from '../../layouts/Layout.astro'
+import Nav from '../../components/Nav.astro'
+import Code from '../../components/Code.astro'
+
+const dispatchResp = `{"id": "m1a2b3c4", "model": "stepfun/step-3.5-flash:free", "status": "running"}`
+const errors = [
+  { status: '400', body: '{"error":"prompt required"}', cause: 'Missing prompt field' },
+  { status: '401', body: '{"error":"unauthorized"}', cause: 'Missing or invalid bearer token' },
+  { status: '404', body: '{"error":"not found"}', cause: 'Job ID doesn\'t exist or expired (24h TTL)' },
+  { status: '502', body: '{"error":"..."}', cause: 'Upstream model error (rate limit, provider down)' },
+  { status: '503', body: '{"error":"API not configured"}', cause: 'Server missing CHOMP_API_TOKEN' },
+]
+---
+<Layout title="API Reference — chomp">
+  <Nav active="/docs/reference" />
+  <main class="max-w-3xl mx-auto px-5 py-12">
+    <div class="text-sm font-semibold text-blue-500 mb-2">Reference</div>
+    <h1 class="text-3xl font-bold tracking-tight mb-2">API Reference</h1>
+    <p class="text-zinc-500 dark:text-zinc-400 mb-4">Base URL: <code class="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-sm">https://chomp.coey.dev</code></p>
+
+    <div class="mb-8 p-4 rounded-xl border-l-4 border-gold bg-zinc-50 dark:bg-zinc-900 text-sm">
+      <strong class="text-gold">Authentication.</strong> All endpoints except <code>/api/models/free</code> require <code>Authorization: Bearer &lt;token&gt;</code>.
+    </div>
+
+    <!-- POST /api/dispatch -->
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-green-500/15 text-green-600 dark:text-green-400">POST</span>
+        <code class="text-lg font-semibold">/api/dispatch</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Send a prompt to a free model. Returns immediately with a job ID. The model processes asynchronously.</p>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Request body (JSON)</h3>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Field</th><th class="text-left px-4 py-2">Type</th><th class="text-left px-4 py-2">Description</th></tr></thead>
+          <tbody>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">prompt</td><td class="px-4 py-2">string</td><td class="px-4 py-2">The prompt to send. <span class="text-xs font-bold text-red-500 uppercase">Required</span></td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">model</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Model ID, or "auto" (default). Auto picks the free model with the largest context window.</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">system</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Optional system prompt prepended to the conversation.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Response 200</h3>
+      <Code code={dispatchResp} />
+    </section>
+
+    <!-- GET /api/result/:id -->
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">GET</span>
+        <code class="text-lg font-semibold">/api/result/:id</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Retrieve the status and result of a dispatched job.</p>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Path parameters</h3>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Param</th><th class="text-left px-4 py-2">Description</th></tr></thead>
+          <tbody>
+            <tr><td class="px-4 py-2 font-mono">id</td><td class="px-4 py-2">Job ID returned by /api/dispatch. <span class="text-xs font-bold text-red-500 uppercase">Required</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Response schema</h3>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Field</th><th class="text-left px-4 py-2">Type</th><th class="text-left px-4 py-2">Description</th></tr></thead>
+          <tbody>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">id</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Job ID</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">status</td><td class="px-4 py-2">string</td><td class="px-4 py-2">running | done | error</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">model</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Model ID used</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">prompt</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Original prompt</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">result</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Model response (when done)</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">error</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Error message (when error)</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">tokens_in</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Prompt tokens consumed</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">tokens_out</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Completion tokens generated</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">latency_ms</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Processing time in milliseconds</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">created</td><td class="px-4 py-2">string</td><td class="px-4 py-2">ISO 8601 timestamp</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">finished</td><td class="px-4 py-2">string</td><td class="px-4 py-2">ISO 8601 timestamp (when complete)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- GET /api/jobs -->
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">GET</span>
+        <code class="text-lg font-semibold">/api/jobs</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Returns the 50 most recent jobs, newest first. Same schema as /api/result/:id, wrapped in an array.</p>
+    </section>
+
+    <!-- GET /api/models/free -->
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">GET</span>
+        <code class="text-lg font-semibold">/api/models/free</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Returns currently available free models on OpenRouter. <strong>No authentication required.</strong> Cached for 15 minutes.</p>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Response schema</h3>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Field</th><th class="text-left px-4 py-2">Type</th><th class="text-left px-4 py-2">Description</th></tr></thead>
+          <tbody>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">count</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Number of free models available</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models</td><td class="px-4 py-2">array</td><td class="px-4 py-2">Array of model objects</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].id</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Full model ID (pass to /api/dispatch)</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].name</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Human-readable model name</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].context_length</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Maximum context window in tokens</td></tr>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">models[].max_output</td><td class="px-4 py-2">number</td><td class="px-4 py-2">Maximum output tokens (0 if unknown)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Errors -->
+    <section class="mb-12">
+      <h2 class="text-xl font-bold tracking-tight mb-4 pb-3 border-b border-zinc-200 dark:border-zinc-800">Error codes</h2>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Status</th><th class="text-left px-4 py-2">Body</th><th class="text-left px-4 py-2">Cause</th></tr></thead>
+          <tbody>
+            {errors.map(e => (
+              <tr class="border-t border-zinc-100 dark:border-zinc-800">
+                <td class="px-4 py-2 font-mono">{e.status}</td>
+                <td class="px-4 py-2 font-mono text-xs">{e.body}</td>
+                <td class="px-4 py-2">{e.cause}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</Layout>

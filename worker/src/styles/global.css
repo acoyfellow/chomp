@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sora: 'Sora', system-ui, sans-serif;
+  --color-gold: #c8a630;
+  --color-gold-dim: #a6882a;
+}

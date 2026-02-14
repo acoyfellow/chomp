@@ -1,0 +1,42 @@
+---
+import Layout from '../../layouts/Layout.astro'
+import Nav from '../../components/Nav.astro'
+---
+<Layout title="Concepts — chomp">
+  <Nav active="/docs/concepts" />
+  <main class="max-w-3xl mx-auto px-5 py-12 [&_p]:text-zinc-600 dark:[&_p]:text-zinc-400 [&_p]:mb-4 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:pb-3 [&_h2]:border-b [&_h2]:border-zinc-200 dark:[&_h2]:border-zinc-800">
+    <div class="text-sm font-semibold text-purple-500 mb-2">Explanation</div>
+    <h1 class="text-3xl font-bold tracking-tight mb-2">Concepts</h1>
+    <p class="!text-zinc-500 mb-10">How chomp works, and why it’s designed this way.</p>
+
+    <h2>What are free models?</h2>
+    <p>OpenRouter is an API aggregator that routes requests to AI model providers. Some providers offer models for free — either as promotional deals, open-source model hosting, or as loss leaders to attract users to their platform.</p>
+    <p>Free models are identified by an <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">:free</code> suffix on their model ID. There are typically 20–30 free models available at any time. The roster rotates — a model that’s free this week might not be next week, and new ones appear regularly.</p>
+    <p>These aren’t toy models. At time of writing, free models include DeepSeek R1 (a reasoning model comparable to o1), Qwen3 Coder 480B (a massive code model), and various 70B–120B parameter models.</p>
+
+    <h2>How model auto-selection works</h2>
+    <p>When you dispatch a prompt with <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">model: "auto"</code> or omit the model field, chomp fetches the current list of free models from OpenRouter and picks the one with the largest context window.</p>
+    <p>This is a simple heuristic: larger context window generally correlates with larger, more capable models. It’s not always the best choice — a 256k-context flash model might be less capable than a 128k-context reasoning model. For tasks where quality matters, specify the model directly.</p>
+    <p>The model list is cached for 15 minutes to avoid hammering OpenRouter’s API.</p>
+
+    <h2>Why async dispatch?</h2>
+    <p>Chomp’s dispatch endpoint returns immediately with a job ID, rather than waiting for the model to respond. This is a deliberate design choice for two reasons:</p>
+    <p><strong>Parallelism.</strong> A calling agent can dispatch five tasks simultaneously and poll for all of them. This is much faster than making five sequential synchronous calls.</p>
+    <p><strong>Timeout resilience.</strong> Free models can be slow. DeepSeek R1 regularly takes 30–60 seconds. Some providers have cold starts. An async design means the caller never hits HTTP timeouts, and can implement its own backoff strategy.</p>
+
+    <h2>Rate limits and fair use</h2>
+    <p>Free models have rate limits set by their providers, enforced through OpenRouter. These are typically per-minute (requests and tokens) and per-day limits. When you hit them, the model returns HTTP 429.</p>
+    <p>Chomp does not currently handle rate limit retries automatically — the error propagates to the job result. The calling agent is responsible for retry logic. A future version may add automatic fallback to the next-best free model on 429.</p>
+    <p>Some providers also enforce data policies. If you see a 404 about "no endpoints matching your data policy", visit <a href="https://openrouter.ai/settings/privacy" class="text-gold hover:underline">OpenRouter privacy settings</a> and allow free model training data usage.</p>
+
+    <h2>The context window problem</h2>
+    <p>Chomp exists because AI agents have finite context windows. A coding agent like Shelley (Claude) has ~200k tokens of context. Every file it reads, every tool output, every conversation turn eats into that budget.</p>
+    <p>The pattern chomp enables: an orchestrating agent breaks a large task into bounded subtasks, dispatches each to a free model, and collects only the summarized results. The orchestrator’s context stays lean while the grunt work happens elsewhere at zero cost.</p>
+    <p>This is the "staff of agents" model. The orchestrator is the senior engineer who delegates; the free models are junior engineers who do bounded, well-scoped tasks.</p>
+
+    <h2>Jobs and persistence</h2>
+    <p>Jobs are stored in Cloudflare KV with a 24-hour TTL. After 24 hours, job results are garbage collected. If you need to retain results, save them on your end when you poll.</p>
+    <p>The job index (the list of recent job IDs) holds the last 100 entries. Older jobs may still be accessible by ID if they haven’t expired, but won’t appear in <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">/api/jobs</code>.</p>
+
+  </main>
+</Layout>
