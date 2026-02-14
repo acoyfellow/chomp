@@ -1,0 +1,66 @@
+# chomp
+
+> Local OpenAI-compatible LLM proxy. Routes to free model providers. Built for AI agents.
+
+## What is chomp?
+
+chomp is a Go server that runs on localhost and exposes a standard OpenAI-compatible API.
+It routes requests to whichever free/cheap model providers you've configured.
+No vendor lock-in. No cost. Just set your API keys and go.
+
+## Quick start
+
+```bash
+# Set your API key
+export OPENAI_BASE_URL=http://localhost:8001/v1
+export OPENAI_API_KEY=<your-chomp-token>
+
+# Chat completion (standard OpenAI format)
+curl $OPENAI_BASE_URL/chat/completions \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"hello"}]}'
+
+# List all available models
+curl $OPENAI_BASE_URL/models -H "Authorization: Bearer $OPENAI_API_KEY"
+```
+
+## Endpoints
+
+- `POST /v1/chat/completions` — OpenAI-compatible chat completion (synchronous)
+- `GET /v1/models` — list all models from all configured routers
+- `POST /api/dispatch` — async dispatch (returns job ID, poll /api/result/:id)
+- `GET /api/models/:router` — list models for a specific router
+- `GET /api/models/free` — list free OpenRouter models
+
+## Routers
+
+chomp routes to these providers (configure via env vars):
+
+| Router | Env Var | Free Tier | Speed |
+|--------|---------|-----------|-------|
+| OpenCode Zen | OPENCODE_ZEN_API_KEY | Free premium models | ~2-7s |
+| Groq | GROQ_API_KEY | 30 req/min free | ⚡ ~200ms |
+| Cerebras | CEREBRAS_API_KEY | Free tier | ⚡ fast |
+| SambaNova | SAMBANOVA_API_KEY | Free cloud | fast |
+| Together | TOGETHER_API_KEY | $1 free credit | good |
+| Fireworks | FIREWORKS_API_KEY | $1 free credit | fast |
+| OpenRouter | OPENROUTER_API_KEY | Free :free models | varies |
+
+## Router selection
+
+Add `"router": "groq"` to the request body to pick a specific router.
+Omit it or use `"auto"` to let chomp pick the first configured router.
+
+## Auth
+
+Set `CHOMP_API_TOKEN` env var. Pass as `Authorization: Bearer <token>`.
+Set `CHOMP_V1_NO_AUTH=1` to disable auth for trusted local-only setups.
+
+## Source
+
+https://github.com/acoyfellow/chomp
+
+## Docs
+
+https://chomp.coey.dev

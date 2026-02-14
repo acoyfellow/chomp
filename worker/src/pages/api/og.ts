@@ -66,7 +66,7 @@ function generateSVG(title: string, description: string): string {
 
 let fontCache: { bold: Uint8Array | null; regular: Uint8Array | null } = { bold: null, regular: null }
 
-async function loadFonts(fetchFn: typeof fetch, origin: string, assets?: any) {
+async function loadFonts(fetchFn: typeof fetch, origin: string, assets?: Fetcher) {
   if (fontCache.bold && fontCache.regular) return
 
   const boldPath = '/fonts/sora-bold.ttf'
@@ -102,7 +102,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
     })
   }
 
-  const env = locals.runtime.env as any
+  const env = locals.runtime.env
   await loadFonts(fetch, url.origin, env.ASSETS)
 
   const resvg = new Resvg(svg, {
@@ -114,7 +114,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
   })
   const png = resvg.render().asPng()
 
-  return new Response(png, {
+  return new Response(png as unknown as BodyInit, {
     headers: {
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=3600',

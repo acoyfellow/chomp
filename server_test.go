@@ -1216,8 +1216,9 @@ func TestE2E_PerTaskBudgetFlag(t *testing.T) {
 func TestSandboxDispatch(t *testing.T) {
 	defer setupTest(t)()
 
-	// Create a mock sandbox worker
-	received := make(chan map[string]string, 1)
+	// Create a mock sandbox worker; buffer extra to absorb stale dispatches
+	// from previous tests whose goroutines read sandboxWorkerURL late.
+	received := make(chan map[string]string, 8)
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		json.NewDecoder(r.Body).Decode(&body)
@@ -1236,27 +1237,32 @@ func TestSandboxDispatch(t *testing.T) {
 	postJSON(apiAddTask, `{"prompt":"test sandbox","agent":"pi","model":"test-model","repo_url":"https://github.com/test/repo"}`)
 	postJSON(apiRunTask, `{"id":"1"}`)
 
-	// Verify dispatch was called with correct payload
-	select {
-	case body := <-received:
-		if body["taskId"] != "1" {
-			t.Fatalf("expected taskId=1, got %s", body["taskId"])
+	// Drain the channel looking for our dispatch; skip stale ones from prior tests.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case body := <-received:
+			if body["prompt"] != "test sandbox" {
+				continue // stale dispatch from a previous test's goroutine
+			}
+			if body["taskId"] != "1" {
+				t.Fatalf("expected taskId=1, got %s", body["taskId"])
+			}
+			if body["agent"] != "pi" {
+				t.Fatalf("expected agent=pi, got %s", body["agent"])
+			}
+			if body["model"] != "test-model" {
+				t.Fatalf("expected model=test-model, got %s", body["model"])
+			}
+			if body["repoUrl"] != "https://github.com/test/repo" {
+				t.Fatalf("expected repoUrl, got %s", body["repoUrl"])
+			}
+			goto dispatched
+		case <-deadline:
+			t.Fatal("sandbox dispatch was not called within 3s")
 		}
-		if body["prompt"] != "test sandbox" {
-			t.Fatalf("expected prompt='test sandbox', got %s", body["prompt"])
-		}
-		if body["agent"] != "pi" {
-			t.Fatalf("expected agent=pi, got %s", body["agent"])
-		}
-		if body["model"] != "test-model" {
-			t.Fatalf("expected model=test-model, got %s", body["model"])
-		}
-		if body["repoUrl"] != "https://github.com/test/repo" {
-			t.Fatalf("expected repoUrl, got %s", body["repoUrl"])
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("sandbox dispatch was not called within 2s")
 	}
+dispatched:
 
 	// Give async goroutine time to write sandbox_id back
 	time.Sleep(500 * time.Millisecond)

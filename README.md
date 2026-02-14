@@ -1,85 +1,116 @@
 # chomp
 
-Task queue for AI agents. Feed tasks in, agents chew through them, dashboard to watch.
+Local OpenAI-compatible LLM proxy. Routes to 7 free/cheap model providers, exposes a standard `/v1/chat/completions` endpoint. Built for AI agents to offload work to free models.
 
-<p align="center">
-  <img src="screenshot.png" alt="chomp dashboard" width="390">
-</p>
+**[Docs](https://chomp.coey.dev)** · **[Source](https://github.com/acoyfellow/chomp)**
 
 ## Quick start
 
 ```bash
-# Add to PATH
-ln -sf $(pwd)/bin/chomp ~/bin/chomp
+# Build
+go build -o chomp-server server.go
 
-# Add tasks
-chomp add "refactor the auth module"
-chomp add "write tests for billing" --dir ./myapp
+# Configure
+cp state/.env.example state/.env  # add your API keys
 
-# Dispatch
-chomp run
+# Run
+./chomp-server
+# or: systemctl start chomp
+
+# Use
+curl http://localhost:8001/v1/chat/completions \
+  -H "Authorization: Bearer $CHOMP_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama-3.3-70b", "messages": [{"role": "user", "content": "hello"}]}'
 ```
 
-## Dashboard
+## API
 
-```bash
-# Docker (persistent, survives reboots)
-docker build -t chomp .
-docker run -d --name chomp --restart unless-stopped \
-  -p 8000:8001 \
-  -v $(pwd)/state:/app/state \
-  chomp
-```
+OpenAI-compatible. Point any client at `http://localhost:8001`.
 
-Dashboard at `http://localhost:8000`. Mobile-first, light/dark mode.
+| Endpoint | Description |
+| --- | --- |
+| `POST /v1/chat/completions` | Chat completions (streaming supported) |
+| `GET /v1/models` | List available models |
+| `POST /api/dispatch` | Async task dispatch |
+| `GET /api/result/:id` | Poll async result |
+| `GET /` | Dashboard (HTMX) |
 
-## How it works
+Auth: `Authorization: Bearer <CHOMP_API_TOKEN>`
 
-```
-chomp add "task"  \u2192  state.json  \u2192  chomp run  \u2192  agent works  \u2192  chomp done
-```
+## Routers
 
-Tasks are strings. Agents are dispatched via adapter scripts. State lives in one JSON file.
+7 providers, configured via env vars in `state/.env`:
 
-## CLI
+| Router | Env var |
+| --- | --- |
+| OpenCode Zen | `OPENCODE_ZEN_API_KEY` |
+| Groq | `GROQ_API_KEY` |
+| Cerebras | `CEREBRAS_API_KEY` |
+| SambaNova | `SAMBANOVA_API_KEY` |
+| Together | `TOGETHER_API_KEY` |
+| Fireworks | `FIREWORKS_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
 
-```
-chomp add "task" [--dir /path]    Add a task
-chomp list                        Show backlog
-chomp status                      Overview + token spend
-chomp run [--platform X]          Dispatch next task
-chomp done <id> ["summary"]       Mark complete
-chomp handoff <id> "context"      Re-queue with progress
-chomp drop <id>                   Remove a task
-chomp log                         Completed history
-```
+Also:
 
-## Adapters
-
-Shell scripts in `adapters/`. Two functions: `available` and `run`.
-
-```bash
-# adapters/myplatform.sh
-case "${1:-}" in
-  available) command -v myagent &>/dev/null ;;
-  run) myagent --message "$TASK_PROMPT" --dir "$TASK_DIR" ;;
-esac
-```
+| Var | Purpose |
+| --- | --- |
+| `CHOMP_API_TOKEN` | Bearer token for client auth |
+| `PORT` | Listen port (default `8001`) |
 
 ## Structure
 
 ```
 chomp/
-├── bin/chomp              CLI
-├── adapters/              Platform dispatch scripts
-├── templates/             Go html/template (HTMX partials)
-├── static/                Tailwind CSS
-├── server.go              Go server (API + templates)
-├── server_test.go         53 tests
-├── Dockerfile             Multi-stage build
-├── state/                 Runtime state (gitignored)
-└── AGENTS.md              Agent/contributor instructions
+├── server.go              Go server: /v1/ proxy + /api/ + dashboard (~2500 lines)
+├── server_test.go         89 tests
+├── bin/chomp              CLI (bash + jq)
+├── adapters/              Agent dispatch scripts (shelley, opencode, etc)
+├── templates/             Go html/template (HTMX dashboard)
+├── static/                CSS + HTMX
+├── worker/                Astro site → chomp.coey.dev (Cloudflare Workers)
+├── .github/workflows/     CI/CD: deploy Astro to CF on push
+├── Dockerfile             Multi-stage Go build
+├── state/                 Runtime: state.json, .env (gitignored)
+├── AGENTS.md              Agent instructions
+└── llms.txt               LLM-readable project summary
 ```
+
+## Run with Docker
+
+```bash
+docker build -t chomp .
+docker run -d --name chomp --restart unless-stopped \
+  -p 8001:8001 \
+  -v $(pwd)/state:/app/state \
+  chomp
+```
+
+## Run with systemd
+
+```ini
+[Unit]
+Description=chomp LLM proxy
+After=network.target
+
+[Service]
+ExecStart=/path/to/chomp-server
+WorkingDirectory=/path/to/chomp
+Restart=always
+EnvironmentFile=/path/to/chomp/state/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Tests
+
+```bash
+go test -v ./...
+```
+
+89 tests covering routers, auth, streaming, task dispatch, and dashboard rendering.
 
 ## License
 
