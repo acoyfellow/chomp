@@ -69,11 +69,16 @@ type State struct {
 }
 
 var allowedKeys = map[string]bool{
-	"CLOUDFLARE_API_TOKEN":    true,
-	"CLOUDFLARE_ACCOUNT_ID":   true,
+	"CLOUDFLARE_API_TOKEN":     true,
+	"CLOUDFLARE_ACCOUNT_ID":    true,
 	"CLOUDFLARE_AI_GATEWAY_ID": true,
-	"OPENCODE_ZEN_API_KEY":    true,
-	"OPENROUTER_API_KEY":      true,
+	"OPENCODE_ZEN_API_KEY":     true,
+	"OPENROUTER_API_KEY":       true,
+	"GROQ_API_KEY":             true,
+	"CEREBRAS_API_KEY":         true,
+	"SAMBANOVA_API_KEY":        true,
+	"TOGETHER_API_KEY":         true,
+	"FIREWORKS_API_KEY":        true,
 }
 
 var (
@@ -537,30 +542,26 @@ func apiConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	cfg := ConfigResponse{
-		Agents: agents,
-		Routers: map[string]RouterConfig{
-			"cf-ai": {
-				Name: "Cloudflare AI Gateway",
-				Keys: []KeyStatus{
-					checkKey("API Token", "CLOUDFLARE_API_TOKEN"),
-					checkKey("Account ID", "CLOUDFLARE_ACCOUNT_ID"),
-					checkKey("AI Gateway ID", "CLOUDFLARE_AI_GATEWAY_ID"),
-				},
-			},
-			"zen": {
-				Name: "OpenCode Zen",
-				Keys: []KeyStatus{
-					checkKey("API Key", "OPENCODE_ZEN_API_KEY"),
-				},
-			},
-			"openrouter": {
-				Name: "OpenRouter",
-				Keys: []KeyStatus{
-					checkKey("API Key", "OPENROUTER_API_KEY"),
-				},
+	routers := map[string]RouterConfig{
+		"cf-ai": {
+			Name: "Cloudflare AI Gateway",
+			Keys: []KeyStatus{
+				checkKey("API Token", "CLOUDFLARE_API_TOKEN"),
+				checkKey("Account ID", "CLOUDFLARE_ACCOUNT_ID"),
+				checkKey("AI Gateway ID", "CLOUDFLARE_AI_GATEWAY_ID"),
 			},
 		},
+	}
+	// Add all registered routers
+	for _, rd := range routerDefs {
+		routers[rd.ID] = RouterConfig{
+			Name: rd.Name,
+			Keys: []KeyStatus{checkKey("API Key", rd.EnvKey)},
+		}
+	}
+	cfg := ConfigResponse{
+		Agents:  agents,
+		Routers: routers,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cfg)
@@ -1390,64 +1391,148 @@ func callOpenAICompat(ctx context.Context, baseURL, apiKey, model, system, promp
 	return result.Choices[0].Message.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, nil
 }
 
-// callOpenRouter sends a chat completion request to OpenRouter.
+// ── Router registry ──
+//
+// Each router is an OpenAI-compatible API with a base URL, env var for the key,
+// and a default model to use when auto-picking.
+
+type RouterDef struct {
+	ID           string
+	Name         string
+	BaseURL      string
+	EnvKey       string
+	Color        string
+	DefaultModel string            // used when model=auto for this router
+	Headers      map[string]string // extra headers per request
+}
+
+var routerDefs = []RouterDef{
+	{
+		ID: "zen", Name: "OpenCode Zen",
+		BaseURL: "https://opencode.ai/zen/v1", EnvKey: "OPENCODE_ZEN_API_KEY",
+		Color: "#10B981", DefaultModel: "minimax-m2.5-free",
+	},
+	{
+		ID: "groq", Name: "Groq",
+		BaseURL: "https://api.groq.com/openai/v1", EnvKey: "GROQ_API_KEY",
+		Color: "#F55036", DefaultModel: "llama-3.3-70b-versatile",
+	},
+	{
+		ID: "cerebras", Name: "Cerebras",
+		BaseURL: "https://api.cerebras.ai/v1", EnvKey: "CEREBRAS_API_KEY",
+		Color: "#5046E4", DefaultModel: "llama-3.3-70b",
+	},
+	{
+		ID: "sambanova", Name: "SambaNova",
+		BaseURL: "https://api.sambanova.ai/v1", EnvKey: "SAMBANOVA_API_KEY",
+		Color: "#FF6600", DefaultModel: "Meta-Llama-3.3-70B-Instruct",
+	},
+	{
+		ID: "together", Name: "Together",
+		BaseURL: "https://api.together.xyz/v1", EnvKey: "TOGETHER_API_KEY",
+		Color: "#0EA5E9", DefaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+	},
+	{
+		ID: "fireworks", Name: "Fireworks",
+		BaseURL: "https://api.fireworks.ai/inference/v1", EnvKey: "FIREWORKS_API_KEY",
+		Color: "#FF4500", DefaultModel: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+	},
+	{
+		ID: "openrouter", Name: "OpenRouter",
+		BaseURL: "https://openrouter.ai/api/v1", EnvKey: "OPENROUTER_API_KEY",
+		Color: "#7C3AED", DefaultModel: "auto",
+		Headers: map[string]string{"HTTP-Referer": "https://chomp.dev", "X-Title": "chomp"},
+	},
+}
+
+func getRouter(id string) *RouterDef {
+	for i := range routerDefs {
+		if routerDefs[i].ID == id {
+			return &routerDefs[i]
+		}
+	}
+	return nil
+}
+
+func routerNames() []string {
+	var names []string
+	for _, r := range routerDefs {
+		names = append(names, r.ID)
+	}
+	return names
+}
+
+// callRouter dispatches to any registered router.
+func callRouter(ctx context.Context, routerID, model, system, prompt string) (string, int, int, error) {
+	rd := getRouter(routerID)
+	if rd == nil {
+		return "", 0, 0, fmt.Errorf("unknown router: %s", routerID)
+	}
+	apiKey := os.Getenv(rd.EnvKey)
+	if apiKey == "" {
+		return "", 0, 0, fmt.Errorf("%s not set", rd.EnvKey)
+	}
+	return callOpenAICompat(ctx, rd.BaseURL, apiKey, model, system, prompt, rd.Headers)
+}
+
+// callOpenRouter is kept for backward compat in free model scanning.
 func callOpenRouter(ctx context.Context, model, system, prompt string) (string, int, int, error) {
-	return callOpenAICompat(ctx,
-		"https://openrouter.ai/api/v1",
-		os.Getenv("OPENROUTER_API_KEY"),
-		model, system, prompt,
-		map[string]string{
-			"HTTP-Referer": "https://chomp.dev",
-			"X-Title":      "chomp",
-		},
-	)
+	return callRouter(ctx, "openrouter", model, system, prompt)
 }
 
-// callZen sends a chat completion request to OpenCode Zen.
-func callZen(ctx context.Context, model, system, prompt string) (string, int, int, error) {
-	return callOpenAICompat(ctx,
-		"https://opencode.ai/zen/v1",
-		os.Getenv("OPENCODE_ZEN_API_KEY"),
-		model, system, prompt,
-		nil,
-	)
-}
+// ── Generic model listing (works for any OpenAI-compatible router) ──
 
-// --- Zen model scanning ---
-
-type ZenModel struct {
+type RouterModel struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
 }
 
-var (
-	zenModelsCache    []ZenModel
-	zenModelsCachedAt time.Time
-	zenModelsMu       sync.Mutex
-)
+type modelCache struct {
+	models   []RouterModel
+	cachedAt time.Time
+	mu       sync.Mutex
+}
 
-// fetchZenModels queries OpenCode Zen for available models.
-func fetchZenModels() ([]ZenModel, error) {
-	zenModelsMu.Lock()
-	defer zenModelsMu.Unlock()
+var routerModelCaches = make(map[string]*modelCache)
+var routerModelCachesMu sync.Mutex
 
-	// Cache for 15 minutes
-	if zenModelsCache != nil && time.Since(zenModelsCachedAt) < 15*time.Minute {
-		return zenModelsCache, nil
+func getModelCache(routerID string) *modelCache {
+	routerModelCachesMu.Lock()
+	defer routerModelCachesMu.Unlock()
+	if c, ok := routerModelCaches[routerID]; ok {
+		return c
 	}
+	c := &modelCache{}
+	routerModelCaches[routerID] = c
+	return c
+}
 
-	apiKey := os.Getenv("OPENCODE_ZEN_API_KEY")
+// fetchRouterModels lists models from any OpenAI-compatible /models endpoint.
+func fetchRouterModels(routerID string) ([]RouterModel, error) {
+	rd := getRouter(routerID)
+	if rd == nil {
+		return nil, fmt.Errorf("unknown router: %s", routerID)
+	}
+	apiKey := os.Getenv(rd.EnvKey)
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENCODE_ZEN_API_KEY not set")
+		return nil, fmt.Errorf("%s not set", rd.EnvKey)
 	}
 
-	req, _ := http.NewRequest("GET", "https://opencode.ai/zen/v1/models", nil)
+	cache := getModelCache(routerID)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if cache.models != nil && time.Since(cache.cachedAt) < 15*time.Minute {
+		return cache.models, nil
+	}
+
+	req, _ := http.NewRequest("GET", rd.BaseURL+"/models", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetching zen models: %w", err)
+		return nil, fmt.Errorf("fetching %s models: %w", rd.Name, err)
 	}
 	defer resp.Body.Close()
 
@@ -1457,71 +1542,68 @@ func fetchZenModels() ([]ZenModel, error) {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding zen models: %w", err)
+		return nil, fmt.Errorf("decoding %s models: %w", rd.Name, err)
 	}
 
-	var models []ZenModel
+	var models []RouterModel
 	for _, m := range result.Data {
-		models = append(models, ZenModel{ID: m.ID, Name: m.ID})
+		models = append(models, RouterModel{ID: m.ID, Name: m.ID})
 	}
 
-	zenModelsCache = models
-	zenModelsCachedAt = time.Now()
+	cache.models = models
+	cache.cachedAt = time.Now()
 	return models, nil
 }
 
-// zenFreeModels returns Zen models that contain "free" in the ID.
-func zenFreeModels() ([]ZenModel, error) {
-	models, err := fetchZenModels()
-	if err != nil {
-		return nil, err
+// pickDefaultModel returns the default model for a router.
+func pickDefaultModel(routerID string) (string, error) {
+	rd := getRouter(routerID)
+	if rd == nil {
+		return "", fmt.Errorf("unknown router: %s", routerID)
 	}
-	var free []ZenModel
-	for _, m := range models {
-		if strings.Contains(m.ID, "free") {
-			free = append(free, m)
+	// OpenRouter special case: use free model scanner
+	if routerID == "openrouter" {
+		return pickBestFreeModel()
+	}
+	// For Zen, prefer free models
+	if routerID == "zen" {
+		models, err := fetchRouterModels("zen")
+		if err == nil {
+			for _, m := range models {
+				if strings.Contains(m.ID, "free") {
+					return m.ID, nil
+				}
+			}
 		}
 	}
-	return free, nil
+	return rd.DefaultModel, nil
 }
 
-// pickBestZenModel selects a good Zen model. Prefers free, falls back to gpt-5-nano.
-func pickBestZenModel() (string, error) {
-	models, err := fetchZenModels()
-	if err != nil {
-		return "", err
-	}
-	if len(models) == 0 {
-		return "", fmt.Errorf("no zen models available")
-	}
-	// Prefer free models
-	for _, m := range models {
-		if strings.Contains(m.ID, "free") {
-			return m.ID, nil
-		}
-	}
-	// Fallback: gpt-5-nano is cheapest
-	for _, m := range models {
-		if m.ID == "gpt-5-nano" {
-			return m.ID, nil
-		}
-	}
-	return models[0].ID, nil
-}
-
-// apiZenModels returns available OpenCode Zen models.
-func apiZenModels(w http.ResponseWriter, r *http.Request) {
+// apiRouterModels handles GET /api/models/:router
+func apiRouterModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", 405)
 		return
 	}
-	models, err := fetchZenModels()
+	routerID := strings.TrimPrefix(r.URL.Path, "/api/models/")
+	if routerID == "free" {
+		// Legacy endpoint — handled by apiFreeModels
+		apiFreeModels(w, r)
+		return
+	}
+	rd := getRouter(routerID)
+	if rd == nil {
+		http.Error(w, fmt.Sprintf(`{"error":"unknown router: %s"}`, routerID), 400)
+		return
+	}
+	models, err := fetchRouterModels(routerID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"router": routerID,
 		"count":  len(models),
 		"models": models,
 	})
@@ -1577,59 +1659,35 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 	model := body.Model
 
 	// Resolve router + model
-	switch router {
-	case "zen":
-		if model == "" || model == "auto" {
-			var err error
-			model, err = pickBestZenModel()
-			if err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
-				return
+	if router == "auto" {
+		// Pick first configured router (order = routerDefs priority)
+		found := false
+		for _, rd := range routerDefs {
+			if os.Getenv(rd.EnvKey) != "" {
+				router = rd.ID
+				found = true
+				break
 			}
 		}
-	case "openrouter":
-		if model == "" || model == "auto" {
-			var err error
-			model, err = pickBestFreeModel()
-			if err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
-				return
-			}
-		}
-	case "auto":
-		// Prefer Zen (free tokens), fall back to OpenRouter free models
-		if os.Getenv("OPENCODE_ZEN_API_KEY") != "" {
-			router = "zen"
-			if model == "" || model == "auto" {
-				var err error
-				model, err = pickBestZenModel()
-				if err != nil {
-					// Zen failed, fall back to OpenRouter
-					router = "openrouter"
-					model, err = pickBestFreeModel()
-					if err != nil {
-						http.Error(w, fmt.Sprintf(`{"error":"no routers available: %s"}`, err.Error()), 502)
-						return
-					}
-				}
-			}
-		} else if os.Getenv("OPENROUTER_API_KEY") != "" {
-			router = "openrouter"
-			if model == "" || model == "auto" {
-				var err error
-				model, err = pickBestFreeModel()
-				if err != nil {
-					http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
-					return
-				}
-			}
-		} else {
-			http.Error(w, `{"error":"no router configured: set OPENCODE_ZEN_API_KEY or OPENROUTER_API_KEY"}`, 502)
+		if !found {
+			http.Error(w, `{"error":"no router configured"}`, 502)
 			return
 		}
-	default:
-		http.Error(w, fmt.Sprintf(`{"error":"unknown router: %s (use openrouter, zen, or auto)"}`, router), 400)
+	}
+
+	rd := getRouter(router)
+	if rd == nil {
+		http.Error(w, fmt.Sprintf(`{"error":"unknown router: %s (options: %s)"}`, router, strings.Join(routerNames(), ", ")), 400)
 		return
+	}
+
+	if model == "" || model == "auto" {
+		var err error
+		model, err = pickDefaultModel(router)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+			return
+		}
 	}
 
 	id := strconv.FormatInt(jobNextID.Add(1), 10)
@@ -1655,16 +1713,7 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
-		var result string
-		var tokIn, tokOut int
-		var err error
-
-		switch router {
-		case "zen":
-			result, tokIn, tokOut, err = callZen(ctx, model, body.System, body.Prompt)
-		default:
-			result, tokIn, tokOut, err = callOpenRouter(ctx, model, body.System, body.Prompt)
-		}
+		result, tokIn, tokOut, err := callRouter(ctx, router, model, body.System, body.Prompt)
 
 		latency := time.Since(start).Milliseconds()
 
@@ -1953,14 +2002,19 @@ func platformStatuses() []PlatformStatus {
 		Name: "OpenRouter", Color: "#7C3AED", Status: orStatus, Credits: orCredits,
 	})
 
-	// OpenCode Zen
-	zenStatus := "unconfigured"
-	if os.Getenv("OPENCODE_ZEN_API_KEY") != "" {
-		zenStatus = "live"
+	// All routers from registry (except OpenRouter which is above)
+	for _, rd := range routerDefs {
+		if rd.ID == "openrouter" {
+			continue // already handled above with credit check
+		}
+		status := "unconfigured"
+		if os.Getenv(rd.EnvKey) != "" {
+			status = "live"
+		}
+		out = append(out, PlatformStatus{
+			Name: rd.Name, Color: rd.Color, Status: status,
+		})
 	}
-	out = append(out, PlatformStatus{
-		Name: "OpenCode Zen", Color: "#10B981", Status: zenStatus,
-	})
 
 	return out
 }
@@ -2321,7 +2375,7 @@ func main() {
 	mux.HandleFunc("/api/sandbox/output/", apiSandboxOutput)
 	mux.HandleFunc("/api/platforms", apiPlatforms)
 	mux.HandleFunc("/api/models/free", apiFreeModels)
-	mux.HandleFunc("/api/models/zen", apiZenModels)
+	mux.HandleFunc("/api/models/", apiRouterModels)
 	mux.HandleFunc("/api/dispatch", apiDispatch)
 	mux.HandleFunc("/api/result/", apiResult)
 	mux.HandleFunc("/api/jobs", apiJobs)

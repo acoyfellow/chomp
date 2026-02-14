@@ -13,15 +13,22 @@ interface Props {
 
 const {
   title = 'chomp',
-  description = 'Bring your own OpenRouter key. Dispatch prompts to free AI models. Zero cost.',
+  description = 'Two routers. 50+ free models. Zero cost.',
   path = '/',
   type = 'website',
   keywords = '',
   class: className = '',
 } = Astro.props
+
+// SSR: read theme cookie
+const themeCookie = Astro.cookies.get('theme')?.value
+const ssrDark = themeCookie === 'dark'
+const ssrLight = themeCookie === 'light'
+// If cookie is set, we know. If not, client script handles system pref.
+const htmlClass = ssrDark ? 'dark' : undefined
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class={htmlClass}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -48,12 +55,40 @@ const {
   />
   <script is:inline>
     (function(){
-      if(localStorage.getItem('theme')==='dark'||(!localStorage.getItem('theme')&&window.matchMedia('(prefers-color-scheme:dark)').matches)){
-        document.documentElement.classList.add('dark')
+      var d=document.documentElement,c=d.classList;
+      // Read cookie (already set by SSR class, but handle no-cookie + system pref)
+      var saved=(document.cookie.match(/(?:^|;)\s*theme=(\w+)/)||[])[1];
+      if(!saved){
+        // No cookie: use system preference, don't set cookie (respect system)
+        if(window.matchMedia('(prefers-color-scheme:dark)').matches){
+          c.add('dark');
+        }else{
+          c.remove('dark');
+        }
+      }
+      // Migrate localStorage users to cookie
+      var ls=localStorage.getItem('theme');
+      if(ls&&!saved){
+        document.cookie='theme='+ls+';path=/;max-age=31536000;SameSite=Lax';
+        localStorage.removeItem('theme');
+        if(ls==='dark')c.add('dark');else c.remove('dark');
+      }
+      // Update toggle icon
+      function syncIcon(){
+        var btn=document.getElementById('theme-toggle');
+        if(btn)btn.textContent=c.contains('dark')?'\u2600':'\u263E';
       }
       window.toggleTheme=function(){
-        document.documentElement.classList.toggle('dark');
-        localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');
+        c.toggle('dark');
+        var next=c.contains('dark')?'dark':'light';
+        document.cookie='theme='+next+';path=/;max-age=31536000;SameSite=Lax';
+        syncIcon();
+      }
+      // Sync icon after DOM ready
+      if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',syncIcon);
+      }else{
+        syncIcon();
       }
     })()
   </script>
