@@ -11,8 +11,11 @@
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.12",
     "@cf-wasm/resvg": "^0.3.3",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@tailwindcss/vite": "^4.1.18",
     "astro": "^5.17.1",
-    "tailwindcss": "^4.1.18"
+    "effect": "^3.19.17",
+    "tailwindcss": "^4.1.18",
+    "zod": "^3.25.76"
   }
 }
