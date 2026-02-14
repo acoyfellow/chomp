@@ -77,7 +77,7 @@ var allowedKeys = map[string]bool{
 	"GROQ_API_KEY":             true,
 	"CEREBRAS_API_KEY":         true,
 	"SAMBANOVA_API_KEY":        true,
-	"TOGETHER_API_KEY":         true,
+
 	"FIREWORKS_API_KEY":        true,
 }
 
@@ -1426,11 +1426,6 @@ var routerDefs = []RouterDef{
 		ID: "sambanova", Name: "SambaNova",
 		BaseURL: "https://api.sambanova.ai/v1", EnvKey: "SAMBANOVA_API_KEY",
 		Color: "#FF6600", DefaultModel: "Meta-Llama-3.3-70B-Instruct",
-	},
-	{
-		ID: "together", Name: "Together",
-		BaseURL: "https://api.together.xyz/v1", EnvKey: "TOGETHER_API_KEY",
-		Color: "#0EA5E9", DefaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 	},
 	{
 		ID: "fireworks", Name: "Fireworks",

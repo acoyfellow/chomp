@@ -1466,7 +1466,7 @@ func TestRouterModelsEndpoint_UnknownRouter(t *testing.T) {
 
 func TestRouterRegistry(t *testing.T) {
 	// All expected routers exist
-	for _, id := range []string{"zen", "groq", "cerebras", "sambanova", "together", "fireworks", "openrouter"} {
+	for _, id := range []string{"zen", "groq", "cerebras", "sambanova", "fireworks", "openrouter"} {
 		if getRouter(id) == nil {
 			t.Errorf("missing router: %s", id)
 		}
