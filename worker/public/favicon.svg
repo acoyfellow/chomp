@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark rounded square -->
+  <rect width="512" height="512" rx="108" fill="#18181b"/>
+  <!-- Bite mark: triangle wedge cut from top-right -->
+  <polygon points="512,0 512,160 352,0" fill="#09090b"/>
+  <!-- Smooth the bite with the rounded corner -->
+  <rect x="404" y="0" width="108" height="4" fill="#09090b"/>
+  <rect x="508" y="0" width="4" height="108" fill="#09090b"/>
+  <!-- Gold dot — the period in chomp. -->
+  <circle cx="256" cy="296" r="80" fill="#c8a630"/>
+</svg>
