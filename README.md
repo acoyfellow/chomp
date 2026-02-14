@@ -4,6 +4,8 @@ Local OpenAI-compatible LLM proxy. Routes to 7 free/cheap model providers, expos
 
 **[Docs](https://chomp.coey.dev)** · **[Source](https://github.com/acoyfellow/chomp)**
 
+![chomp — Two routers. 50+ free models. Zero cost.](https://raw.githubusercontent.com/acoyfellow/chomp/main/screenshot.png)
+
 ## Quick start
 
 ```bash
