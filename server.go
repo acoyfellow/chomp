@@ -1291,6 +1291,7 @@ type Job struct {
 	ID        string `json:"id"`
 	Prompt    string `json:"prompt"`
 	Model     string `json:"model"`
+	Router    string `json:"router"`
 	Status    string `json:"status"` // pending, running, done, error
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
@@ -1325,11 +1326,10 @@ func pickBestFreeModel() (string, error) {
 	return models[0].ID, nil
 }
 
-// callOpenRouter sends a chat completion request to OpenRouter.
-func callOpenRouter(ctx context.Context, model, system, prompt string) (string, int, int, error) {
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
+// callOpenAICompat sends a chat completion to any OpenAI-compatible API.
+func callOpenAICompat(ctx context.Context, baseURL, apiKey, model, system, prompt string, extraHeaders map[string]string) (string, int, int, error) {
 	if apiKey == "" {
-		return "", 0, 0, fmt.Errorf("OPENROUTER_API_KEY not set")
+		return "", 0, 0, fmt.Errorf("API key not set")
 	}
 
 	var messages []map[string]string
@@ -1343,14 +1343,15 @@ func callOpenRouter(ctx context.Context, model, system, prompt string) (string, 
 		"messages": messages,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", 0, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", "https://chomp.dev")
-	req.Header.Set("X-Title", "chomp")
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
 
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
@@ -1365,7 +1366,7 @@ func callOpenRouter(ctx context.Context, model, system, prompt string) (string, 
 	}
 
 	if resp.StatusCode != 200 {
-		return "", 0, 0, fmt.Errorf("OpenRouter %d: %s", resp.StatusCode, string(respBody))
+		return "", 0, 0, fmt.Errorf("%d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
@@ -1387,6 +1388,143 @@ func callOpenRouter(ctx context.Context, model, system, prompt string) (string, 
 	}
 
 	return result.Choices[0].Message.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, nil
+}
+
+// callOpenRouter sends a chat completion request to OpenRouter.
+func callOpenRouter(ctx context.Context, model, system, prompt string) (string, int, int, error) {
+	return callOpenAICompat(ctx,
+		"https://openrouter.ai/api/v1",
+		os.Getenv("OPENROUTER_API_KEY"),
+		model, system, prompt,
+		map[string]string{
+			"HTTP-Referer": "https://chomp.dev",
+			"X-Title":      "chomp",
+		},
+	)
+}
+
+// callZen sends a chat completion request to OpenCode Zen.
+func callZen(ctx context.Context, model, system, prompt string) (string, int, int, error) {
+	return callOpenAICompat(ctx,
+		"https://opencode.ai/zen/v1",
+		os.Getenv("OPENCODE_ZEN_API_KEY"),
+		model, system, prompt,
+		nil,
+	)
+}
+
+// --- Zen model scanning ---
+
+type ZenModel struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+var (
+	zenModelsCache    []ZenModel
+	zenModelsCachedAt time.Time
+	zenModelsMu       sync.Mutex
+)
+
+// fetchZenModels queries OpenCode Zen for available models.
+func fetchZenModels() ([]ZenModel, error) {
+	zenModelsMu.Lock()
+	defer zenModelsMu.Unlock()
+
+	// Cache for 15 minutes
+	if zenModelsCache != nil && time.Since(zenModelsCachedAt) < 15*time.Minute {
+		return zenModelsCache, nil
+	}
+
+	apiKey := os.Getenv("OPENCODE_ZEN_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENCODE_ZEN_API_KEY not set")
+	}
+
+	req, _ := http.NewRequest("GET", "https://opencode.ai/zen/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching zen models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding zen models: %w", err)
+	}
+
+	var models []ZenModel
+	for _, m := range result.Data {
+		models = append(models, ZenModel{ID: m.ID, Name: m.ID})
+	}
+
+	zenModelsCache = models
+	zenModelsCachedAt = time.Now()
+	return models, nil
+}
+
+// zenFreeModels returns Zen models that contain "free" in the ID.
+func zenFreeModels() ([]ZenModel, error) {
+	models, err := fetchZenModels()
+	if err != nil {
+		return nil, err
+	}
+	var free []ZenModel
+	for _, m := range models {
+		if strings.Contains(m.ID, "free") {
+			free = append(free, m)
+		}
+	}
+	return free, nil
+}
+
+// pickBestZenModel selects a good Zen model. Prefers free, falls back to gpt-5-nano.
+func pickBestZenModel() (string, error) {
+	models, err := fetchZenModels()
+	if err != nil {
+		return "", err
+	}
+	if len(models) == 0 {
+		return "", fmt.Errorf("no zen models available")
+	}
+	// Prefer free models
+	for _, m := range models {
+		if strings.Contains(m.ID, "free") {
+			return m.ID, nil
+		}
+	}
+	// Fallback: gpt-5-nano is cheapest
+	for _, m := range models {
+		if m.ID == "gpt-5-nano" {
+			return m.ID, nil
+		}
+	}
+	return models[0].ID, nil
+}
+
+// apiZenModels returns available OpenCode Zen models.
+func apiZenModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+	models, err := fetchZenModels()
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":  len(models),
+		"models": models,
+	})
 }
 
 // requireAuth checks Bearer token against CHOMP_API_TOKEN env var.
@@ -1420,6 +1558,7 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 		Prompt string `json:"prompt"`
 		Model  string `json:"model"`
 		System string `json:"system"`
+		Router string `json:"router"` // "openrouter", "zen", or "auto" (default)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", 400)
@@ -1430,14 +1569,67 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	router := body.Router
+	if router == "" {
+		router = "auto"
+	}
+
 	model := body.Model
-	if model == "" || model == "auto" {
-		var err error
-		model, err = pickBestFreeModel()
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+
+	// Resolve router + model
+	switch router {
+	case "zen":
+		if model == "" || model == "auto" {
+			var err error
+			model, err = pickBestZenModel()
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+				return
+			}
+		}
+	case "openrouter":
+		if model == "" || model == "auto" {
+			var err error
+			model, err = pickBestFreeModel()
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+				return
+			}
+		}
+	case "auto":
+		// Prefer Zen (free tokens), fall back to OpenRouter free models
+		if os.Getenv("OPENCODE_ZEN_API_KEY") != "" {
+			router = "zen"
+			if model == "" || model == "auto" {
+				var err error
+				model, err = pickBestZenModel()
+				if err != nil {
+					// Zen failed, fall back to OpenRouter
+					router = "openrouter"
+					model, err = pickBestFreeModel()
+					if err != nil {
+						http.Error(w, fmt.Sprintf(`{"error":"no routers available: %s"}`, err.Error()), 502)
+						return
+					}
+				}
+			}
+		} else if os.Getenv("OPENROUTER_API_KEY") != "" {
+			router = "openrouter"
+			if model == "" || model == "auto" {
+				var err error
+				model, err = pickBestFreeModel()
+				if err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+					return
+				}
+			}
+		} else {
+			http.Error(w, `{"error":"no router configured: set OPENCODE_ZEN_API_KEY or OPENROUTER_API_KEY"}`, 502)
 			return
 		}
+	default:
+		http.Error(w, fmt.Sprintf(`{"error":"unknown router: %s (use openrouter, zen, or auto)"}`, router), 400)
+		return
 	}
 
 	id := strconv.FormatInt(jobNextID.Add(1), 10)
@@ -1446,6 +1638,7 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 		Prompt:  body.Prompt,
 		Model:   model,
 		System:  body.System,
+		Router:  router,
 		Status:  "running",
 		Created: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -1454,7 +1647,7 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 	jobs[id] = job
 	jobsMu.Unlock()
 
-	log.Printf("[dispatch] job %s → %s (%d chars)", id, model, len(body.Prompt))
+	log.Printf("[dispatch] job %s → %s/%s (%d chars)", id, router, model, len(body.Prompt))
 
 	// Fire and forget — caller polls /api/result/:id
 	go func() {
@@ -1462,7 +1655,17 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
-		result, tokIn, tokOut, err := callOpenRouter(ctx, model, body.System, body.Prompt)
+		var result string
+		var tokIn, tokOut int
+		var err error
+
+		switch router {
+		case "zen":
+			result, tokIn, tokOut, err = callZen(ctx, model, body.System, body.Prompt)
+		default:
+			result, tokIn, tokOut, err = callOpenRouter(ctx, model, body.System, body.Prompt)
+		}
+
 		latency := time.Since(start).Milliseconds()
 
 		jobsMu.Lock()
@@ -1480,12 +1683,12 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 			job.Result = result
 			job.TokensIn = tokIn
 			job.TokensOut = tokOut
-			log.Printf("[dispatch] job %s done: %d→%d tokens, %dms", id, tokIn, tokOut, latency)
+			log.Printf("[dispatch] job %s done: %s/%s %d→%d tokens, %dms", id, router, model, tokIn, tokOut, latency)
 		}
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": id, "model": model, "status": "running"})
+	json.NewEncoder(w).Encode(map[string]string{"id": id, "model": model, "router": router, "status": "running"})
 }
 
 func apiResult(w http.ResponseWriter, r *http.Request) {
@@ -2118,6 +2321,7 @@ func main() {
 	mux.HandleFunc("/api/sandbox/output/", apiSandboxOutput)
 	mux.HandleFunc("/api/platforms", apiPlatforms)
 	mux.HandleFunc("/api/models/free", apiFreeModels)
+	mux.HandleFunc("/api/models/zen", apiZenModels)
 	mux.HandleFunc("/api/dispatch", apiDispatch)
 	mux.HandleFunc("/api/result/", apiResult)
 	mux.HandleFunc("/api/jobs", apiJobs)

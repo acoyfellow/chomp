@@ -1392,3 +1392,168 @@ func TestBuiltinAgentsIncludeCursorAndClaude(t *testing.T) {
 		t.Errorf("claude-code command = %q, want claude", agents["claude-code"].Command)
 	}
 }
+
+// --- Zen router tests ---
+
+func TestZenModelsEndpoint(t *testing.T) {
+	if os.Getenv("OPENCODE_ZEN_API_KEY") == "" {
+		t.Skip("OPENCODE_ZEN_API_KEY not set")
+	}
+	req := httptest.NewRequest("GET", "/api/models/zen", nil)
+	w := httptest.NewRecorder()
+	apiZenModels(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var result struct {
+		Count  int        `json:"count"`
+		Models []ZenModel `json:"models"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Count == 0 {
+		t.Fatal("expected zen models, got 0")
+	}
+	// Should include gpt-5-nano
+	found := false
+	for _, m := range result.Models {
+		if m.ID == "gpt-5-nano" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected gpt-5-nano in zen models")
+	}
+}
+
+func TestZenModelsEndpoint_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/models/zen", nil)
+	w := httptest.NewRecorder()
+	apiZenModels(w, req)
+	if w.Code != 405 {
+		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestZenModelsEndpoint_NoKey(t *testing.T) {
+	old := os.Getenv("OPENCODE_ZEN_API_KEY")
+	os.Unsetenv("OPENCODE_ZEN_API_KEY")
+	defer os.Setenv("OPENCODE_ZEN_API_KEY", old)
+
+	// Clear cache
+	zenModelsMu.Lock()
+	zenModelsCache = nil
+	zenModelsMu.Unlock()
+
+	req := httptest.NewRequest("GET", "/api/models/zen", nil)
+	w := httptest.NewRecorder()
+	apiZenModels(w, req)
+	if w.Code != 502 {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+}
+
+func TestDispatch_RouterField(t *testing.T) {
+	defer setupTest(t)()
+	os.Setenv("CHOMP_API_TOKEN", "test-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	// Unknown router should 400
+	req := httptest.NewRequest("POST", "/api/dispatch",
+		strings.NewReader(`{"prompt":"hello","router":"bogus"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-tok")
+	w := httptest.NewRecorder()
+	apiDispatch(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for unknown router, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDispatch_NoRouterConfigured(t *testing.T) {
+	defer setupTest(t)()
+	os.Setenv("CHOMP_API_TOKEN", "test-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+	old1 := os.Getenv("OPENCODE_ZEN_API_KEY")
+	old2 := os.Getenv("OPENROUTER_API_KEY")
+	os.Unsetenv("OPENCODE_ZEN_API_KEY")
+	os.Unsetenv("OPENROUTER_API_KEY")
+	defer func() {
+		if old1 != "" {
+			os.Setenv("OPENCODE_ZEN_API_KEY", old1)
+		}
+		if old2 != "" {
+			os.Setenv("OPENROUTER_API_KEY", old2)
+		}
+	}()
+
+	// Clear zen cache
+	zenModelsMu.Lock()
+	zenModelsCache = nil
+	zenModelsMu.Unlock()
+
+	req := httptest.NewRequest("POST", "/api/dispatch",
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-tok")
+	w := httptest.NewRecorder()
+	apiDispatch(w, req)
+	if w.Code != 502 {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDispatch_EmptyPrompt(t *testing.T) {
+	defer setupTest(t)()
+	os.Setenv("CHOMP_API_TOKEN", "test-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	req := httptest.NewRequest("POST", "/api/dispatch",
+		strings.NewReader(`{"prompt":""}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-tok")
+	w := httptest.NewRecorder()
+	apiDispatch(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDispatch_Unauthorized(t *testing.T) {
+	defer setupTest(t)()
+	os.Setenv("CHOMP_API_TOKEN", "test-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	req := httptest.NewRequest("POST", "/api/dispatch",
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer wrong")
+	w := httptest.NewRecorder()
+	apiDispatch(w, req)
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestDispatch_MethodNotAllowed(t *testing.T) {
+	defer setupTest(t)()
+	os.Setenv("CHOMP_API_TOKEN", "test-tok")
+	defer os.Unsetenv("CHOMP_API_TOKEN")
+
+	req := httptest.NewRequest("GET", "/api/dispatch", nil)
+	req.Header.Set("Authorization", "Bearer test-tok")
+	w := httptest.NewRecorder()
+	apiDispatch(w, req)
+	if w.Code != 405 {
+		t.Fatalf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestJobHasRouterField(t *testing.T) {
+	j := Job{ID: "1", Router: "zen", Model: "gpt-5-nano", Status: "done"}
+	data, _ := json.Marshal(j)
+	if !strings.Contains(string(data), `"router":"zen"`) {
+		t.Fatalf("expected router field in JSON: %s", data)
+	}
+}
