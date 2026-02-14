@@ -14,7 +14,25 @@ import Code from '../../components/Code.astro'
   <main class="max-w-3xl mx-auto px-5 py-12">
     <div class="text-sm font-semibold text-green-500 mb-2">How-to guides</div>
     <h1 class="text-3xl font-bold tracking-tight mb-2">Guides</h1>
-    <p class="text-zinc-500 dark:text-zinc-400 mb-10">Practical recipes for real problems.</p>
+    <p class="text-zinc-500 dark:text-zinc-400 mb-8">Practical recipes for real problems.</p>
+
+    <div class="grid sm:grid-cols-3 gap-3 mb-12">
+      <a href="/docs/guides/mcp" class="block p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+        <div class="text-sm font-semibold text-gold mb-1">MCP</div>
+        <div class="font-bold text-sm">Install as MCP server</div>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Claude Desktop, Cursor, any MCP client</p>
+      </a>
+      <a href="/docs/guides/tool" class="block p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+        <div class="text-sm font-semibold text-gold mb-1">Agent tool</div>
+        <div class="font-bold text-sm">Use as an agent tool</div>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Shell, OpenAI SDK, fetch</p>
+      </a>
+      <a href="/docs/guides/exe-dev" class="block p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+        <div class="text-sm font-semibold text-gold mb-1">Self-host</div>
+        <div class="font-bold text-sm">Install on exe.dev</div>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Go binary + systemd</p>
+      </a>
+    </div>
 
     <section class="space-y-12">
 
