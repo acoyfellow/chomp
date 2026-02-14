@@ -1386,7 +1386,28 @@ func callOpenRouter(ctx context.Context, model, system, prompt string) (string, 
 	return result.Choices[0].Message.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, nil
 }
 
+// requireAuth checks Bearer token against CHOMP_API_TOKEN env var.
+// Returns true if authorized, false if rejected (and writes 401).
+func requireAuth(w http.ResponseWriter, r *http.Request) bool {
+	token := os.Getenv("CHOMP_API_TOKEN")
+	if token == "" {
+		// No token configured = locked down, reject everything
+		http.Error(w, `{"error":"API not configured"}`, 503)
+		return false
+	}
+	auth := r.Header.Get("Authorization")
+	if auth == "" || !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != token {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="chomp"`)
+		http.Error(w, `{"error":"unauthorized"}`, 401)
+		return false
+	}
+	return true
+}
+
 func apiDispatch(w http.ResponseWriter, r *http.Request) {
+	if !requireAuth(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", 405)
 		return
@@ -1465,6 +1486,9 @@ func apiDispatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiResult(w http.ResponseWriter, r *http.Request) {
+	if !requireAuth(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", 405)
 		return
@@ -1490,6 +1514,9 @@ func apiResult(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiJobs(w http.ResponseWriter, r *http.Request) {
+	if !requireAuth(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", 405)
 		return
