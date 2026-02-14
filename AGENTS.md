@@ -2,153 +2,139 @@
 
 ## What this is
 
-An OpenAI-compatible LLM proxy. Point any tool that speaks the OpenAI API at chomp's `POST /v1/chat/completions` endpoint and it routes requests across 7 backends. Also has a task-queue dashboard for dispatching AI agent work. The Go server is the product.
+An OpenAI-compatible LLM proxy + docs site. Two deployments:
+
+1. **Go API server** (`server.go`, 953 lines) — runs on this machine as a systemd service on `:8001`. Pure JSON API, no HTML. Proxies requests across 6 backends via `/v1/chat/completions`.
+2. **Astro site** (`worker/`) — deployed to Cloudflare Workers at `chomp.coey.dev`. Public docs, landing page, and its own API routes that use Cloudflare KV for job storage.
 
 ## Repo structure
 
 ```
 chomp/
-├─ server.go             # Go server (~2500 lines): proxy, API, dashboard, all logic
-├─ server_test.go        # 89 tests (unit + integration)
-├─ templates/            # Go html/template files
-│  ├─ layout.html        # Base HTML (Sora font, HTMX, Tailwind)
-│  ├─ page.html          # App shell (topbar, balance, tabs, sheets, JS)
-│  └─ partials/          # HTMX fragments (balance, tasks, detail, settings, create)
-├─ static/               # Tailwind input/output CSS
-├─ bin/chomp             # CLI (bash + jq)
-├─ adapters/             # Platform dispatch scripts (exedev.sh, opencode.sh)
-├─ worker/               # Astro site → docs/marketing at chomp.coey.dev
-│  ├─ src/pages/         # index, docs, api pages
-│  └─ wrangler.jsonc     # Cloudflare Workers config
-├─ Dockerfile            # Multi-stage Go build
-├─ state/                # Runtime: state.json, keys.json, agents.json (gitignored)
-├─ go.mod                # Go 1.22.2
-└─ README.md
+├── server.go              # Go API server (runs on this box, :8001)
+├── server_test.go         # 28 tests
+├── worker/                # Astro site → Cloudflare Workers (chomp.coey.dev)
+│   ├── src/
+│   │   ├── pages/         # index, docs/*, api routes
+│   │   ├── components/    # Nav, Code, SEO
+│   │   ├── layouts/       # Layout.astro (theme toggle, fonts)
+│   │   ├── styles/        # global.css (Tailwind v4)
+│   │   └── lib/           # auth.ts
+│   ├── wrangler.jsonc     # CF Workers config + KV bindings (JOBS)
+│   └── astro.config.mjs   # SSR + Cloudflare adapter + Tailwind v4 vite plugin
+├── examples/kitchen-sink.sh  # Integration test script
+├── gates/pre-push.sh         # Pre-push hook (go vet, go test, tsc, astro build)
+├── state/.env                # API keys (gitignored)
+├── .github/workflows/ci.yml  # CI: go vet+test → tsc+build → wrangler deploy
+├── docs/                     # Misc docs
+├── Dockerfile                # Multi-stage Go build
+├── go.mod                    # Go 1.22.2
+└── AGENTS.md
 ```
 
-## Key decisions
+## Go API server (server.go)
 
-- **OpenAI-compatible proxy** is the core value. `POST /v1/chat/completions` and `GET /v1/models` work with any OpenAI SDK or tool.
-- **RouterDef is the abstraction.** Each backend is a struct: ID, name, base URL, env key for the API key, default model, optional extra headers. Adding a router = one new entry in `routerDefs`.
-- **state.json** is the single source of truth for tasks. CLI writes it, server reads it, dashboard displays it.
-- **No database.** JSON file + jq. Intentionally simple.
-- **Adapters are shell scripts.** Two functions: `available` and `run`. Adding a platform = one new .sh file.
-- **The Go server is the product.** Everything in one binary — proxy, dashboard, API.
-- **worker/ is marketing.** The Astro site at chomp.coey.dev is docs and landing page, deployed to Cloudflare Workers.
+Runs as `chomp.service` on this machine. Pure JSON, no HTML.
 
-## Routers
+| Endpoint | Purpose |
+|---|---|
+| `GET /` | `{"name":"chomp","version":"2.0.0","routers":N}` |
+| `POST /v1/chat/completions` | OpenAI-compatible proxy (the product) |
+| `GET /v1/models` | Aggregated model list from all routers |
+| `POST /api/dispatch` | Async prompt dispatch, returns job ID |
+| `GET /api/result/:id` | Poll for job completion |
+| `GET /api/jobs` | List recent jobs |
+| `GET /api/models/:router` | Per-router model listing |
+| `GET /api/models/free` | OpenRouter free models |
+| `GET /api/config` | Router status |
+| `GET /api/platforms` | Router health check |
 
-Seven OpenAI-compatible backends, defined in `routerDefs` in server.go:
+### Routers
 
-| ID | Name | Base URL | Env Key | Default Model |
-|---|---|---|---|---|
-| `zen` | OpenCode Zen | `opencode.ai/zen/v1` | `OPENCODE_ZEN_API_KEY` | `minimax-m2.5-free` |
-| `groq` | Groq | `api.groq.com/openai/v1` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
-| `cerebras` | Cerebras | `api.cerebras.ai/v1` | `CEREBRAS_API_KEY` | `llama-3.3-70b` |
-| `sambanova` | SambaNova | `api.sambanova.ai/v1` | `SAMBANOVA_API_KEY` | `Meta-Llama-3.3-70B-Instruct` |
-| `together` | Together | `api.together.xyz/v1` | `TOGETHER_API_KEY` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
-| `fireworks` | Fireworks | `api.fireworks.ai/inference/v1` | `FIREWORKS_API_KEY` | `accounts/fireworks/models/llama-v3p3-70b-instruct` |
-| `openrouter` | OpenRouter | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | `auto` |
+Six backends defined in `routerDefs`:
 
-**Adding a new router:** Add a `RouterDef{}` entry to `routerDefs` with ID, Name, BaseURL, EnvKey, Color, and DefaultModel. That's it — the proxy, dashboard, and model listing all pick it up automatically.
+| ID | Base URL | Env Key | Default Model |
+|---|---|---|---|
+| `groq` | `api.groq.com/openai/v1` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| `cerebras` | `api.cerebras.ai/v1` | `CEREBRAS_API_KEY` | `llama-3.3-70b` |
+| `sambanova` | `api.sambanova.ai/v1` | `SAMBANOVA_API_KEY` | `Meta-Llama-3.3-70B-Instruct` |
+| `together` | `api.together.xyz/v1` | `TOGETHER_API_KEY` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| `fireworks` | `api.fireworks.ai/inference/v1` | `FIREWORKS_API_KEY` | `accounts/fireworks/models/llama-v3p3-70b-instruct` |
+| `openrouter` | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | `auto` |
 
-## Auth
+Adding a router = one `RouterDef{}` entry in `routerDefs`. Proxy, model listing, and health all pick it up.
 
-- **`CHOMP_API_TOKEN`** — Set this env var. Clients pass `Authorization: Bearer <token>` on every `/v1/` request.
-- **`CHOMP_V1_NO_AUTH=1`** — Skip auth entirely. For local-only / development use.
-- The dashboard API endpoints (`/api/*`) use the same `CHOMP_API_TOKEN` for protected operations.
+### Auth
 
-## API surface
+- `CHOMP_API_TOKEN` env var → clients pass `Authorization: Bearer <token>`
+- `CHOMP_V1_NO_AUTH=1` → skip auth (dev only)
 
-### OpenAI-compatible (the proxy)
-- `POST /v1/chat/completions` — Proxies to a router. Supports streaming.
-- `GET /v1/models` — Lists available models across all configured routers.
+## Astro site (worker/)
 
-### Dashboard API
-- `GET /api/state` — Full task state
-- `GET|POST /api/config` — Server config
-- `POST /api/tasks` — Add task
-- `POST /api/tasks/run` — Run task
-- `POST /api/tasks/done` — Mark done
-- `POST /api/tasks/delete` — Delete task
-- `POST /api/dispatch` — Dispatch to agent
+SSR on Cloudflare Workers. Tailwind CSS v4 + `@tailwindcss/vite` plugin.
+
+**Dark mode:** Uses class-based dark mode via `@custom-variant dark (&:where(.dark, .dark *))` in `global.css`. Toggle button in Nav.astro saves preference to a cookie.
+
+**API routes** (CF Workers, use KV for storage):
+- `POST /api/keys` — Register OpenRouter key, get chomp token
+- `GET /api/keys` — Check key status
+- `DELETE /api/keys` — Revoke token
+- `POST /api/dispatch` — Dispatch prompt to free model
+- `GET /api/result/[id]` — Poll job result
+- `GET /api/jobs` — List jobs
 - `GET /api/models/free` — Free model list
-- `GET /api/models/{router}` — Models for a specific router
-- `GET /api/jobs` — Job listing
+- `GET /api/og` — OG image generation
 
-### Dashboard pages (HTMX)
-- `GET /` — Main dashboard
-- `GET /docs` — Docs page
-- `GET /partials/*` — HTMX partial fragments
+**Pages:** `/` (landing), `/docs` (tutorial), `/docs/reference`, `/docs/guides`, `/docs/concepts`
 
-## Design language
+## CI pipeline
 
-- Font: **Sora** (Bold 700, Regular 400)
-- Light mode default, dark mode via toggle
-- Mobile-first: single column, bottom sheets for detail/picker
-- Stripe's precision + PS5 boot sequence + luxury car door weight
+```
+push to main → go vet + go test → tsc + astro build → wrangler deploy
+```
+
+Defined in `.github/workflows/ci.yml`. Uses bun for the Astro build. Deploy only runs on main branch pushes.
 
 ## Build & run
 
 ```bash
-# Build server
+# Go server
 go build -o chomp-server server.go
+CHOMP_V1_NO_AUTH=1 ./chomp-server   # :8001
 
-# Run locally (no auth, good for dev)
-CHOMP_V1_NO_AUTH=1 ./chomp-server   # serves on :8001
+# Or use systemd
+sudo systemctl restart chomp
 
-# Run with auth
-CHOMP_API_TOKEN=your-secret-token ./chomp-server
+# Tests
+go test -timeout 30s -count=1 ./...
 
-# Set router API keys (only the ones you need)
-export GROQ_API_KEY=gsk_...
-export OPENROUTER_API_KEY=sk-or-...
-# etc.
+# Astro site (local dev)
+cd worker && npm install && npm run dev
 
-# Test
-go test ./...
-
-# Quick smoke test the proxy
-curl http://localhost:8001/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"groq/llama-3.3-70b-versatile","messages":[{"role":"user","content":"hi"}]}'
+# Astro build
+cd worker && npm run build
 ```
 
-### Cloudflare deployment (worker/)
+## Design language
 
-GitHub Actions auto-deploys `worker/` to Cloudflare on push to `main`. The workflow builds the Astro site with Bun and runs `wrangler deploy`. Site lives at chomp.coey.dev.
+- Font: **Sora** (400, 600, 700)
+- Tailwind CSS v4, class-based dark mode
+- Gold accent: `#c8a630`
+- Mobile-first
 
-```bash
-# Local dev for the Astro site
-cd worker && bun install && bun run dev
-```
+## Key decisions
 
-## Tests
-
-89 tests in `server_test.go`. Covers:
-- All `/v1/` endpoints (auth, method checks, payload validation, router resolution)
-- Task CRUD operations
-- Config and settings APIs
-- Dashboard partial rendering
-- Router definitions and model listing
-
-Run with `go test ./...` or `go test -v -run TestName` for a specific test.
-
-## What to work on next
-
-1. **Streaming reliability** — Ensure SSE streaming works cleanly across all 7 routers
-2. **Router health / fallback** — Auto-failover when a router is down or rate-limited
-3. **Usage tracking** — Token counts per router, per key, with dashboard display
-4. **More routers** — DeepInfra, Lepton, etc. (just add a RouterDef)
-5. **Worker site content** — Flesh out docs and API reference at chomp.coey.dev
-6. **Agent dispatch polish** — Wire dashboard picker to dispatch tasks with router selection
+- **server.go is one file** — intentional, not an accident
+- **No database** — Go server uses in-memory state; CF Workers use KV
+- **RouterDef is the abstraction** — struct with ID, name, base URL, env key, default model
+- **Adapters are shell scripts** — `available` and `run` functions
+- **Two separate API surfaces** — Go server (private, this box) and CF Workers (public, chomp.coey.dev)
 
 ## Rules
 
 - Don't commit `state/` contents or the compiled binary
-- Keep `server.go` as one file — it's intentional, not an accident
-- 89 tests must pass before merging (`go test ./...`)
-- Keep the dashboard mobile-first — test at 390px before merging
-- Keep adapters as simple shell scripts
+- 28 tests must pass before merging (`go test ./...`)
+- `tsc --noEmit` must pass for the Astro site
+- Keep the site mobile-first
 - Adding a router = one `RouterDef{}` entry, nothing else
-- Commit messages should be descriptive (see git log for style)
+- Commit messages should be descriptive
