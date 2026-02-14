@@ -1,28 +1,52 @@
 ---
 import '../styles/global.css'
-interface Props { title?: string; class?: string }
-const { title = 'chomp', class: className = '' } = Astro.props
+import SEO from '../components/SEO.astro'
+
+interface Props {
+  title?: string
+  description?: string
+  path?: string
+  type?: 'website' | 'article'
+  keywords?: string
+  class?: string
+}
+
+const {
+  title = 'chomp',
+  description = 'Bring your own OpenRouter key. Dispatch prompts to free AI models. Zero cost.',
+  path = '/',
+  type = 'website',
+  keywords = '',
+  class: className = '',
+} = Astro.props
 ---
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>{title}</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet" />
-<script is:inline>
-  (function(){
-    if(localStorage.getItem('theme')==='dark'||(!localStorage.getItem('theme')&&window.matchMedia('(prefers-color-scheme:dark)').matches)){
-      document.documentElement.classList.add('dark')
-    }
-    window.toggleTheme=function(){
-      document.documentElement.classList.toggle('dark');
-      localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');
-    }
-  })()
-</script>
+  <SEO
+    title={title}
+    description={description}
+    path={path}
+    type={type}
+    keywords={keywords}
+  />
+  <script is:inline>
+    (function(){
+      if(localStorage.getItem('theme')==='dark'||(!localStorage.getItem('theme')&&window.matchMedia('(prefers-color-scheme:dark)').matches)){
+        document.documentElement.classList.add('dark')
+      }
+      window.toggleTheme=function(){
+        document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');
+      }
+    })()
+  </script>
 </head>
 <body class:list={['bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50 font-sora antialiased', className]}>
   <slot />

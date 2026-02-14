@@ -12,7 +12,12 @@ const errors = [
   { status: '503', body: '{"error":"API not configured"}', cause: 'Server missing CHOMP_API_TOKEN' },
 ]
 ---
-<Layout title="API Reference — chomp">
+<Layout
+  title="API Reference"
+  description="Complete API reference for chomp. Endpoints, parameters, response schemas, error codes."
+  path="/docs/reference"
+  keywords="API reference, endpoints, dispatch, models, authentication"
+>
   <Nav active="/docs/reference" />
   <main class="max-w-3xl mx-auto px-5 py-12">
     <div class="text-sm font-semibold text-blue-500 mb-2">Reference</div>

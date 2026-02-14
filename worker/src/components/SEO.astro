@@ -1,0 +1,106 @@
+---
+interface Props {
+  title: string
+  description: string
+  path: string
+  type?: 'website' | 'article'
+  keywords?: string
+  ogImage?: string
+  publishedTime?: string
+  modifiedTime?: string
+  section?: string
+  tags?: string
+  author?: string
+  twitterHandle?: string
+}
+
+const baseUrl = 'https://chomp.coey.dev'
+const siteName = 'chomp'
+
+const {
+  title,
+  description,
+  path,
+  type = 'website',
+  keywords = '',
+  ogImage,
+  publishedTime,
+  modifiedTime,
+  section,
+  tags,
+  author = 'chomp',
+  twitterHandle = '@acoyfellow',
+} = Astro.props
+
+const canonicalUrl = `${baseUrl}${path}`
+const ogImageUrl = ogImage || `${baseUrl}/api/og?title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`
+
+// Schema.org
+const websiteSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: siteName,
+  url: baseUrl,
+  description: 'Dispatch prompts to free AI models. Bring your own OpenRouter key.',
+}
+
+const pageSchema = type === 'article' ? {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: title,
+  description,
+  image: ogImageUrl,
+  author: { '@type': 'Organization', name: author },
+  publisher: { '@type': 'Organization', name: siteName, logo: { '@type': 'ImageObject', url: `${baseUrl}/favicon.svg` } },
+  datePublished: publishedTime,
+  dateModified: modifiedTime || publishedTime,
+  mainEntityOfPage: { '@type': 'WebPage', '@id': canonicalUrl },
+} : null
+
+const breadcrumbSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Home', item: baseUrl },
+    ...(path !== '/' ? [{ '@type': 'ListItem', position: 2, name: title, item: canonicalUrl }] : []),
+  ],
+}
+---
+
+<!-- Essential -->
+<title>{title} — {siteName}</title>
+<meta name="description" content={description} />
+{keywords && <meta name="keywords" content={keywords} />}
+<link rel="canonical" href={canonicalUrl} />
+<meta name="author" content={author} />
+
+<!-- Open Graph -->
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:type" content={type} />
+<meta property="og:url" content={canonicalUrl} />
+<meta property="og:image" content={ogImageUrl} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content={siteName} />
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={ogImageUrl} />
+{twitterHandle && <meta name="twitter:site" content={twitterHandle} />}
+
+{type === 'article' && publishedTime && (
+  <>
+    <meta property="article:published_time" content={publishedTime} />
+    {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
+    {section && <meta property="article:section" content={section} />}
+    {tags && <meta property="article:tag" content={tags} />}
+  </>
+)}
+
+<!-- Schema.org -->
+<script type="application/ld+json" set:html={JSON.stringify(websiteSchema)} />
+<script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} />
+{pageSchema && <script type="application/ld+json" set:html={JSON.stringify(pageSchema)} />}
