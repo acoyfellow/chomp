@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -13,8 +14,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -1274,6 +1278,242 @@ func apiFreeModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── Dispatch layer: Shelley's staff ──
+//
+// POST /api/dispatch  → send prompt to a free model, get job ID
+// GET  /api/result/:id → poll for completion
+// GET  /api/jobs       → list recent jobs
+
+type Job struct {
+	ID        string `json:"id"`
+	Prompt    string `json:"prompt"`
+	Model     string `json:"model"`
+	Status    string `json:"status"` // pending, running, done, error
+	Result    string `json:"result,omitempty"`
+	Error     string `json:"error,omitempty"`
+	TokensIn  int    `json:"tokens_in,omitempty"`
+	TokensOut int    `json:"tokens_out,omitempty"`
+	Created   string `json:"created"`
+	Finished  string `json:"finished,omitempty"`
+	LatencyMs int64  `json:"latency_ms,omitempty"`
+	System    string `json:"system,omitempty"`
+}
+
+var (
+	jobsMu    sync.RWMutex
+	jobs      = make(map[string]*Job)
+	jobNextID atomic.Int64
+)
+
+// pickBestFreeModel selects the best available free model.
+// Prefers largest context, filters out known-bad models.
+func pickBestFreeModel() (string, error) {
+	models, err := fetchFreeModels()
+	if err != nil {
+		return "", err
+	}
+	if len(models) == 0 {
+		return "", fmt.Errorf("no free models available")
+	}
+	// Sort by context length descending
+	sort.Slice(models, func(i, j int) bool {
+		return models[i].ContextLength > models[j].ContextLength
+	})
+	return models[0].ID, nil
+}
+
+// callOpenRouter sends a chat completion request to OpenRouter.
+func callOpenRouter(ctx context.Context, model, system, prompt string) (string, int, int, error) {
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	if apiKey == "" {
+		return "", 0, 0, fmt.Errorf("OPENROUTER_API_KEY not set")
+	}
+
+	var messages []map[string]string
+	if system != "" {
+		messages = append(messages, map[string]string{"role": "system", "content": system})
+	}
+	messages = append(messages, map[string]string{"role": "user", "content": prompt})
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return "", 0, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HTTP-Referer", "https://chomp.dev")
+	req.Header.Set("X-Title", "chomp")
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return "", 0, 0, fmt.Errorf("OpenRouter %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", 0, 0, fmt.Errorf("parsing response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", 0, 0, fmt.Errorf("no choices in response")
+	}
+
+	return result.Choices[0].Message.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, nil
+}
+
+func apiDispatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+
+	var body struct {
+		Prompt string `json:"prompt"`
+		Model  string `json:"model"`
+		System string `json:"system"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", 400)
+		return
+	}
+	if body.Prompt == "" {
+		http.Error(w, `{"error":"prompt required"}`, 400)
+		return
+	}
+
+	model := body.Model
+	if model == "" || model == "auto" {
+		var err error
+		model, err = pickBestFreeModel()
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), 502)
+			return
+		}
+	}
+
+	id := strconv.FormatInt(jobNextID.Add(1), 10)
+	job := &Job{
+		ID:      id,
+		Prompt:  body.Prompt,
+		Model:   model,
+		System:  body.System,
+		Status:  "running",
+		Created: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	jobsMu.Lock()
+	jobs[id] = job
+	jobsMu.Unlock()
+
+	log.Printf("[dispatch] job %s → %s (%d chars)", id, model, len(body.Prompt))
+
+	// Fire and forget — caller polls /api/result/:id
+	go func() {
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		result, tokIn, tokOut, err := callOpenRouter(ctx, model, body.System, body.Prompt)
+		latency := time.Since(start).Milliseconds()
+
+		jobsMu.Lock()
+		defer jobsMu.Unlock()
+
+		job.LatencyMs = latency
+		job.Finished = time.Now().UTC().Format(time.RFC3339)
+
+		if err != nil {
+			job.Status = "error"
+			job.Error = err.Error()
+			log.Printf("[dispatch] job %s failed: %v", id, err)
+		} else {
+			job.Status = "done"
+			job.Result = result
+			job.TokensIn = tokIn
+			job.TokensOut = tokOut
+			log.Printf("[dispatch] job %s done: %d→%d tokens, %dms", id, tokIn, tokOut, latency)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": id, "model": model, "status": "running"})
+}
+
+func apiResult(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/api/result/")
+	if id == "" {
+		http.Error(w, `{"error":"id required"}`, 400)
+		return
+	}
+
+	jobsMu.RLock()
+	job, ok := jobs[id]
+	jobsMu.RUnlock()
+
+	if !ok {
+		http.Error(w, `{"error":"not found"}`, 404)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(job)
+}
+
+func apiJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+
+	jobsMu.RLock()
+	all := make([]*Job, 0, len(jobs))
+	for _, j := range jobs {
+		all = append(all, j)
+	}
+	jobsMu.RUnlock()
+
+	// Most recent first
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+
+	// Cap at 50
+	if len(all) > 50 {
+		all = all[:50]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(all)
+}
+
 // apiPlatforms returns real platform status as JSON.
 func apiPlatforms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1837,6 +2077,9 @@ func main() {
 	mux.HandleFunc("/api/sandbox/output/", apiSandboxOutput)
 	mux.HandleFunc("/api/platforms", apiPlatforms)
 	mux.HandleFunc("/api/models/free", apiFreeModels)
+	mux.HandleFunc("/api/dispatch", apiDispatch)
+	mux.HandleFunc("/api/result/", apiResult)
+	mux.HandleFunc("/api/jobs", apiJobs)
 
 	log.Printf("chomp dashboard on :%s (state: %s)", port, stateFile)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
