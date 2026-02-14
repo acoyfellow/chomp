@@ -20,8 +20,46 @@ const errors = [
     <p class="text-zinc-500 dark:text-zinc-400 mb-4">Base URL: <code class="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-sm">https://chomp.coey.dev</code></p>
 
     <div class="mb-8 p-4 rounded-xl border-l-4 border-gold bg-zinc-50 dark:bg-zinc-900 text-sm">
-      <strong class="text-gold">Authentication.</strong> All endpoints except <code>/api/models/free</code> require <code>Authorization: Bearer &lt;token&gt;</code>.
+      <strong class="text-gold">BYO key.</strong> Register your OpenRouter key via <code>POST /api/keys</code> to get a chomp token. All other endpoints (except <code>/api/models/free</code>) require <code>Authorization: Bearer &lt;token&gt;</code>.
     </div>
+
+    <!-- POST /api/keys -->
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-green-500/15 text-green-600 dark:text-green-400">POST</span>
+        <code class="text-lg font-semibold">/api/keys</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Register your OpenRouter API key. Returns a chomp token for all subsequent requests. Key is validated against OpenRouter before storing.</p>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Request body (JSON)</h3>
+      <div class="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-4">
+        <table class="w-full text-sm">
+          <thead><tr class="bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-xs uppercase tracking-wider"><th class="text-left px-4 py-2">Field</th><th class="text-left px-4 py-2">Type</th><th class="text-left px-4 py-2">Description</th></tr></thead>
+          <tbody>
+            <tr class="border-t border-zinc-100 dark:border-zinc-800"><td class="px-4 py-2 font-mono">openrouter_key</td><td class="px-4 py-2">string</td><td class="px-4 py-2">Your OpenRouter API key (starts with sk-or-). <span class="text-xs font-bold text-red-500 uppercase">Required</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">Response 200</h3>
+      <Code code={'{"token": "a1b2c3...", "created": "2026-02-14T12:00:00Z"}'} />
+    </section>
+
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">GET</span>
+        <code class="text-lg font-semibold">/api/keys</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Check your key status. Returns a masked preview of your stored OpenRouter key.</p>
+    </section>
+
+    <section class="mb-12">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-bold px-2 py-1 rounded bg-red-500/15 text-red-600 dark:text-red-400">DELETE</span>
+        <code class="text-lg font-semibold">/api/keys</code>
+      </div>
+      <p class="text-zinc-600 dark:text-zinc-400 mb-4">Revoke your chomp token and delete your stored OpenRouter key.</p>
+    </section>
 
     <!-- POST /api/dispatch -->
     <section class="mb-12">

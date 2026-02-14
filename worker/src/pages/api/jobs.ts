@@ -1,25 +1,23 @@
 import type { APIRoute } from 'astro'
+import { extractToken, resolveUser, jsonResponse, unauthorized } from '../../lib/auth'
 
 export const GET: APIRoute = async ({ locals, request }) => {
   const env = locals.runtime.env as Env
-  const token = env.CHOMP_API_TOKEN
-  if (!token) return new Response(JSON.stringify({ error: 'API not configured' }), { status: 503 })
-  const header = request.headers.get('Authorization') || ''
-  if (!header.startsWith('Bearer ') || header.slice(7) !== token) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
-  }
 
-  const indexRaw = await env.JOBS.get('job:index')
+  const token = extractToken(request)
+  if (!token) return unauthorized()
+  const user = await resolveUser(token, env.JOBS)
+  if (!user) return unauthorized()
+
+  const indexRaw = await env.JOBS.get(`jobindex:${token}`)
   const index: string[] = indexRaw ? JSON.parse(indexRaw) : []
 
   const jobs = await Promise.all(
     index.slice(0, 50).map(async (id) => {
-      const raw = await env.JOBS.get(`job:${id}`)
+      const raw = await env.JOBS.get(`job:${token}:${id}`)
       return raw ? JSON.parse(raw) : null
     })
   )
 
-  return new Response(JSON.stringify(jobs.filter(Boolean)), {
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return jsonResponse(jobs.filter(Boolean))
 }

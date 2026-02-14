@@ -34,6 +34,11 @@ import Nav from '../../components/Nav.astro'
     <p>The pattern chomp enables: an orchestrating agent breaks a large task into bounded subtasks, dispatches each to a free model, and collects only the summarized results. The orchestrator’s context stays lean while the grunt work happens elsewhere at zero cost.</p>
     <p>This is the "staff of agents" model. The orchestrator is the senior engineer who delegates; the free models are junior engineers who do bounded, well-scoped tasks.</p>
 
+    <h2>BYO key model</h2>
+    <p>Chomp never stores or manages AI provider subscriptions. You bring your own OpenRouter API key (free to create). When you register it, chomp stores the key in Cloudflare KV and gives you a chomp token. Every dispatch call uses <em>your</em> key to call OpenRouter. Your key, your rate limits, your usage.</p>
+    <p>This means chomp is free to operate for the platform owner and free to use for users (since the models themselves are free). There’s no billing layer, no margin, no middleman markup.</p>
+    <p>The entire codebase is open source. If you don’t trust the hosted version, <a href="https://github.com" class="text-gold hover:underline">fork and deploy your own</a> — it’s one Astro project on Cloudflare Workers with a single KV namespace.</p>
+
     <h2>Jobs and persistence</h2>
     <p>Jobs are stored in Cloudflare KV with a 24-hour TTL. After 24 hours, job results are garbage collected. If you need to retain results, save them on your end when you poll.</p>
     <p>The job index (the list of recent job IDs) holds the last 100 entries. Older jobs may still be accessible by ID if they haven’t expired, but won’t appear in <code class="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">/api/jobs</code>.</p>

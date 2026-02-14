@@ -1,17 +1,5 @@
 import type { APIRoute } from 'astro'
-
-function auth(request: Request, env: Env): Response | null {
-  const token = env.CHOMP_API_TOKEN
-  if (!token) return new Response(JSON.stringify({ error: 'API not configured' }), { status: 503 })
-  const header = request.headers.get('Authorization') || ''
-  if (!header.startsWith('Bearer ') || header.slice(7) !== token) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'WWW-Authenticate': 'Bearer realm="chomp"' },
-    })
-  }
-  return null
-}
+import { extractToken, resolveUser, jsonResponse, unauthorized } from '../../lib/auth'
 
 async function pickBestFreeModel(): Promise<string> {
   const resp = await fetch('https://openrouter.ai/api/v1/models')
@@ -31,23 +19,30 @@ async function pickBestFreeModel(): Promise<string> {
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = locals.runtime.env as Env
-  const denied = auth(request, env)
-  if (denied) return denied
 
-  const body = await request.json() as { prompt?: string; model?: string; system?: string }
+  const token = extractToken(request)
+  if (!token) return unauthorized()
+  const user = await resolveUser(token, env.JOBS)
+  if (!user) return unauthorized()
+
+  let body: { prompt?: string; model?: string; system?: string }
+  try {
+    body = await request.json()
+  } catch {
+    return jsonResponse({ error: 'invalid JSON' }, 400)
+  }
   if (!body.prompt) {
-    return new Response(JSON.stringify({ error: 'prompt required' }), { status: 400 })
+    return jsonResponse({ error: 'prompt required' }, 400)
   }
 
   let model = body.model || 'auto'
   if (model === 'auto') {
     try { model = await pickBestFreeModel() }
     catch (e) {
-      return new Response(JSON.stringify({ error: (e as Error).message }), { status: 502 })
+      return jsonResponse({ error: (e as Error).message }, 502)
     }
   }
 
-  // Generate job ID from timestamp
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
   const job = {
     id,
@@ -64,29 +59,32 @@ export const POST: APIRoute = async ({ request, locals }) => {
     latency_ms: 0,
   }
 
-  // Save job to KV
-  await env.JOBS.put(`job:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
+  // Scope jobs to user token
+  await env.JOBS.put(`job:${token}:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
 
-  // Add to job index
-  const indexRaw = await env.JOBS.get('job:index')
+  // User-scoped job index
+  const indexKey = `jobindex:${token}`
+  const indexRaw = await env.JOBS.get(indexKey)
   const index: string[] = indexRaw ? JSON.parse(indexRaw) : []
   index.unshift(id)
   if (index.length > 100) index.length = 100
-  await env.JOBS.put('job:index', JSON.stringify(index))
+  await env.JOBS.put(indexKey, JSON.stringify(index))
 
-  // Fire the LLM call via waitUntil so we return immediately
+  // Fire LLM call with USER's OpenRouter key
   const ctx = locals.runtime.ctx
+  const userKey = user.openrouter_key
+
   ctx.waitUntil((async () => {
     const start = Date.now()
     try {
       const messages: { role: string; content: string }[] = []
       if (body.system) messages.push({ role: 'system', content: body.system })
-      messages.push({ role: 'user', content: body.prompt })
+      messages.push({ role: 'user', content: body.prompt! })
 
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${userKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://chomp.coey.dev',
           'X-Title': 'chomp',
@@ -118,10 +116,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
       job.status = 'error'
       job.error = (e as Error).message
     }
-    await env.JOBS.put(`job:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
+    await env.JOBS.put(`job:${token}:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
   })())
 
-  return new Response(JSON.stringify({ id, model, status: 'running' }), {
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return jsonResponse({ id, model, status: 'running' })
 }
