@@ -2,4 +2,4 @@
 interface Props { code: string; class?: string }
 const { code, class: className = '' } = Astro.props
 ---
-<pre class:list={['bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 text-sm overflow-x-auto', className]}><code set:html={code} /></pre>
+<pre class:list={['bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-5 py-4 text-sm leading-relaxed overflow-x-auto', className]}><code set:html={code} /></pre>

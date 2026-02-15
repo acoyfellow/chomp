@@ -11,34 +11,34 @@ import Code from '../../components/Code.astro'
   keywords="how-to, guides, fan out, routers, rate limits, system prompts, agent, groq, zen, openrouter"
 >
   <Nav active="/docs/guides" />
-  <main class="max-w-3xl mx-auto px-5 py-12">
-    <div class="text-sm font-semibold text-green-500 mb-2">How-to guides</div>
-    <h1 class="text-3xl font-bold tracking-tight mb-2">Guides</h1>
-    <p class="text-zinc-500 dark:text-zinc-400 mb-8">Practical recipes for real problems.</p>
+  <main class="max-w-4xl mx-auto px-6 py-16">
+    <div class="text-sm font-semibold text-green-500 mb-3">How-to guides</div>
+    <h1 class="text-3xl font-bold tracking-tight mb-3">Guides</h1>
+    <p class="text-zinc-500 dark:text-zinc-400 mb-10">Practical recipes for real problems.</p>
 
-    <div class="grid sm:grid-cols-3 gap-3 mb-12">
-      <a href="/docs/guides/mcp" class="block p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+    <div class="grid sm:grid-cols-3 gap-4 mb-14">
+      <a href="/docs/guides/mcp" class="block p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-gold mb-1">MCP</div>
         <div class="font-bold text-sm">Install as MCP server</div>
         <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Claude Desktop, Cursor, any MCP client</p>
       </a>
-      <a href="/docs/guides/tool" class="block p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+      <a href="/docs/guides/tool" class="block p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-gold mb-1">Agent tool</div>
         <div class="font-bold text-sm">Use as an agent tool</div>
         <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Shell, OpenAI SDK, fetch</p>
       </a>
-      <a href="/docs/guides/exe-dev" class="block p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+      <a href="/docs/guides/exe-dev" class="block p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-gold mb-1">Self-host</div>
         <div class="font-bold text-sm">Install on exe.dev</div>
         <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Go binary + systemd</p>
       </a>
     </div>
 
-    <section class="space-y-12">
+    <section class="space-y-16">
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How to fan out a prompt across routers</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Dispatch the same prompt to multiple routers in parallel to compare speed and quality across providers.</p>
+        <h2 class="text-xl font-bold mb-4">How to fan out a prompt across routers</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Dispatch the same prompt to multiple routers in parallel to compare speed and quality across providers.</p>
         <Code code={`#!/bin/bash
 ROUTERS=("groq" "zen" "openrouter")
 PROMPT="Explain the CAP theorem in 2 sentences."
@@ -56,14 +56,14 @@ wait`} />
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How to poll with retry and backoff</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Some models (especially reasoning models like DeepSeek R1) take 30–60 seconds.</p>
+        <h2 class="text-xl font-bold mb-4">How to poll with retry and backoff</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Some models (especially reasoning models like DeepSeek R1) take 30–60 seconds.</p>
         <Code code={`#!/bin/bash\nJOB_ID="$1"\nDELAY=2\n\nwhile true; do\n  RESULT=$(curl -s https://chomp.coey.dev/api/result/$JOB_ID \\\n    -H "Authorization: Bearer $CHOMP_TOKEN")\n  STATUS=$(echo "$RESULT" | jq -r .status)\n\n  case $STATUS in\n    done)  echo "$RESULT" | jq -r .result; exit 0 ;;\n    error) echo "$RESULT" | jq -r .error; exit 1 ;;\n    *)     sleep $DELAY; DELAY=$((DELAY * 2 > 30 ? 30 : DELAY * 2)) ;;\n  esac\ndone`} />
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How to use a system prompt</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Steer model behavior with a system message. Useful for constraining output format.</p>
+        <h2 class="text-xl font-bold mb-4">How to use a system prompt</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Steer model behavior with a system message. Useful for constraining output format.</p>
         <Code code={`curl -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -71,8 +71,8 @@ wait`} />
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How to use chomp as an agent’s tool</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">An orchestrating agent can delegate subtasks to free models to preserve its own context window. Pick a router that fits the task — <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">zen</code> gives access to premium models on a free tier.</p>
+        <h2 class="text-xl font-bold mb-4">How to use chomp as an agent’s tool</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">An orchestrating agent can delegate subtasks to free models to preserve its own context window. Pick a router that fits the task — <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">zen</code> gives access to premium models on a free tier.</p>
         <Code code={`# Dispatch a bounded subtask via the zen router\nJOB=$(curl -s -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -84,37 +84,37 @@ JOB_ID=$(echo $JOB | jq -r .id)\n\n# Poll, then inject result into the agent con
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How to pick the right router</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Chomp has 7 routers. Pass <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">"router"</code> in your dispatch request to choose one.</p>
+        <h2 class="text-xl font-bold mb-4">How to pick the right router</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Chomp has 7 routers. Pass <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">"router"</code> in your dispatch request to choose one.</p>
         <div class="overflow-x-auto">
           <table class="w-full text-sm text-left border-collapse">
             <thead>
               <tr class="border-b border-zinc-300 dark:border-zinc-700">
-                <th class="py-2 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">Router</th>
-                <th class="py-2 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">Best for</th>
-                <th class="py-2 font-semibold text-zinc-800 dark:text-zinc-200">Notes</th>
+                <th class="py-3 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">Router</th>
+                <th class="py-3 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">Best for</th>
+                <th class="py-3 font-semibold text-zinc-800 dark:text-zinc-200">Notes</th>
               </tr>
             </thead>
             <tbody class="text-zinc-600 dark:text-zinc-400">
               <tr class="border-b border-zinc-200 dark:border-zinc-800">
-                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">groq</td>
-                <td class="py-2 pr-4">Fastest responses</td>
-                <td class="py-2">LPU hardware, 30 req/min free tier. Best for quick tasks and low-latency workflows.</td>
+                <td class="py-3 pr-4 font-mono text-green-600 dark:text-green-400">groq</td>
+                <td class="py-3 pr-4">Fastest responses</td>
+                <td class="py-3">LPU hardware, 30 req/min free tier. Best for quick tasks and low-latency workflows.</td>
               </tr>
               <tr class="border-b border-zinc-200 dark:border-zinc-800">
-                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">zen</td>
-                <td class="py-2 pr-4">Free premium models</td>
-                <td class="py-2">Access to GPT-5-nano, Claude, and others on a free tier. Good all-rounder.</td>
+                <td class="py-3 pr-4 font-mono text-green-600 dark:text-green-400">zen</td>
+                <td class="py-3 pr-4">Free premium models</td>
+                <td class="py-3">Access to GPT-5-nano, Claude, and others on a free tier. Good all-rounder.</td>
               </tr>
               <tr class="border-b border-zinc-200 dark:border-zinc-800">
-                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">openrouter</td>
-                <td class="py-2 pr-4">Most model variety</td>
-                <td class="py-2">Hundreds of models. Free <code class="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs">:free</code> models rotate weekly.</td>
+                <td class="py-3 pr-4 font-mono text-green-600 dark:text-green-400">openrouter</td>
+                <td class="py-3 pr-4">Most model variety</td>
+                <td class="py-3">Hundreds of models. Free <code class="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs">:free</code> models rotate weekly.</td>
               </tr>
               <tr>
-                <td class="py-2 pr-4 font-mono text-green-600 dark:text-green-400">auto</td>
-                <td class="py-2 pr-4">Sensible default</td>
-                <td class="py-2">Chomp picks the first configured router. Use when you don't have a preference.</td>
+                <td class="py-3 pr-4 font-mono text-green-600 dark:text-green-400">auto</td>
+                <td class="py-3 pr-4">Sensible default</td>
+                <td class="py-3">Chomp picks the first configured router. Use when you don't have a preference.</td>
               </tr>
             </tbody>
           </table>

@@ -11,16 +11,16 @@ import Code from '../../../components/Code.astro'
   keywords="MCP, Model Context Protocol, Claude Desktop, Cursor, tools, install"
 >
   <Nav active="/docs/guides" />
-  <main class="max-w-3xl mx-auto px-5 py-12">
-    <div class="text-sm font-semibold text-green-500 mb-2">How-to guide</div>
-    <h1 class="text-3xl font-bold tracking-tight mb-2">Install as MCP server</h1>
+  <main class="max-w-4xl mx-auto px-6 py-16">
+    <div class="text-sm font-semibold text-green-500 mb-3">How-to guide</div>
+    <h1 class="text-3xl font-bold tracking-tight mb-3">Install as MCP server</h1>
     <p class="text-zinc-500 dark:text-zinc-400 mb-10">Connect chomp to any MCP-compatible client. Three tools, zero config.</p>
 
     <section class="space-y-12">
 
       <div>
-        <h2 class="text-xl font-bold mb-3">What you get</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Chomp exposes an MCP endpoint at <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/mcp</code> with three tools:</p>
+        <h2 class="text-xl font-bold mb-4">What you get</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Chomp exposes an MCP endpoint at <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/mcp</code> with three tools:</p>
         <ul class="list-disc pl-6 space-y-2 mb-3 text-zinc-600 dark:text-zinc-400">
           <li><code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">ask</code> &mdash; Send a prompt, get a response (dispatches to best free model, polls until done, up to 60s)</li>
           <li><code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">dispatch</code> &mdash; Fire-and-forget, returns a job ID immediately</li>
@@ -30,8 +30,8 @@ import Code from '../../../components/Code.astro'
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">Claude Desktop</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Add to <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">~/Library/Application Support/Claude/claude_desktop_config.json</code> (Mac) or <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">%APPDATA%\Claude\claude_desktop_config.json</code> (Windows):</p>
+        <h2 class="text-xl font-bold mb-4">Claude Desktop</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Add to <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">~/Library/Application Support/Claude/claude_desktop_config.json</code> (Mac) or <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">%APPDATA%\Claude\claude_desktop_config.json</code> (Windows):</p>
         <Code code={`{
   "mcpServers": {
     "chomp": {
@@ -46,8 +46,8 @@ import Code from '../../../components/Code.astro'
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">Cursor</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">In Settings &rarr; MCP, add a new server:</p>
+        <h2 class="text-xl font-bold mb-4">Cursor</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">In Settings &rarr; MCP, add a new server:</p>
         <ul class="list-disc pl-6 space-y-2 mb-3 text-zinc-600 dark:text-zinc-400">
           <li>Type: <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">HTTP</code></li>
           <li>URL: <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/mcp</code></li>
@@ -56,8 +56,8 @@ import Code from '../../../components/Code.astro'
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">Any MCP client (programmatic)</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Using the TypeScript SDK:</p>
+        <h2 class="text-xl font-bold mb-4">Any MCP client (programmatic)</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Using the TypeScript SDK:</p>
         <Code code={`import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
@@ -82,14 +82,14 @@ console.log(result.content[0].text)`} />
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">Test with MCP Inspector</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Quick way to verify everything works:</p>
+        <h2 class="text-xl font-bold mb-4">Test with MCP Inspector</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Quick way to verify everything works:</p>
         <Code code={`npx @modelcontextprotocol/inspector`} />
         <p class="mt-3 text-zinc-600 dark:text-zinc-400">Enter <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/mcp</code> as the server URL, add the <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">Authorization</code> header, connect, and try calling the <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">ask</code> tool.</p>
       </div>
 
       <div>
-        <h2 class="text-xl font-bold mb-3">How it works under the hood</h2>
+        <h2 class="text-xl font-bold mb-4">How it works under the hood</h2>
         <p class="text-zinc-600 dark:text-zinc-400">Chomp's MCP server uses Streamable HTTP transport (stateless mode). Each request creates a fresh server instance. The <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">ask</code> tool dispatches your prompt to the best available free model via OpenRouter, then polls with exponential backoff (1s &rarr; 2s &rarr; 4s&hellip;) until the result is ready or 60 seconds pass. Token metadata (model used, token counts, latency) is included in the response <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">_meta</code>.</p>
       </div>
 

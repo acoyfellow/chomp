@@ -5,37 +5,37 @@ import Code from '../../../components/Code.astro'
 ---
 <Layout title="Deploy on Cloudflare Workers" description="How chomp runs on Cloudflare Workers and how to deploy it." path="/docs/guides/exe-dev" type="article" keywords="chomp, Cloudflare Workers, deploy, self-host, API">
   <Nav active="/docs/guides" />
-  <main class="max-w-3xl mx-auto px-5 py-12">
-    <div class="text-sm font-semibold text-green-500 mb-2">How-to guide</div>
-    <h1 class="text-3xl font-bold tracking-tight mb-2">Deploy on Cloudflare Workers</h1>
+  <main class="max-w-4xl mx-auto px-6 py-16">
+    <div class="text-sm font-semibold text-green-500 mb-3">How-to guide</div>
+    <h1 class="text-3xl font-bold tracking-tight mb-3">Deploy on Cloudflare Workers</h1>
     <p class="text-zinc-500 dark:text-zinc-400 mb-10">How chomp runs on Cloudflare Workers and how to deploy it yourself.</p>
     <section class="space-y-12">
       <div>
-        <h2 class="text-xl font-bold mb-3">Prerequisites</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">A <a href="https://www.cloudflare.com" class="text-green-500 hover:underline">Cloudflare</a> account with Workers enabled, and <a href="https://bun.sh" class="text-green-500 hover:underline">Bun</a> installed locally.</p>
+        <h2 class="text-xl font-bold mb-4">Prerequisites</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">A <a href="https://www.cloudflare.com" class="text-green-500 hover:underline">Cloudflare</a> account with Workers enabled, and <a href="https://bun.sh" class="text-green-500 hover:underline">Bun</a> installed locally.</p>
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Clone the repo</h2>
+        <h2 class="text-xl font-bold mb-4">Clone the repo</h2>
         <Code code={`git clone https://github.com/acoyfellow/chomp.git
 cd chomp/worker
 bun install`} />
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Configure API keys</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Set your secrets via Wrangler. You only need the routers you want to use:</p>
+        <h2 class="text-xl font-bold mb-4">Configure API keys</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">Set your secrets via Wrangler. You only need the routers you want to use:</p>
         <Code code={`bunx wrangler secret put CHOMP_API_TOKEN
 bunx wrangler secret put GROQ_API_KEY
 bunx wrangler secret put OPENROUTER_API_KEY
 # Optional: CEREBRAS_API_KEY, SAMBANOVA_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY`} />
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Deploy</h2>
+        <h2 class="text-xl font-bold mb-4">Deploy</h2>
         <Code code={`cd worker
 bun run build
 bunx wrangler deploy`} />
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Verify</h2>
+        <h2 class="text-xl font-bold mb-4">Verify</h2>
         <Code code={`curl https://chomp.coey.dev/
 # {"name":"chomp","version":"2.0.0","routers":2}
 
@@ -48,8 +48,8 @@ curl -X POST https://chomp.coey.dev/v1/chat/completions \\
   -d '{"model":"auto","messages":[{"role":"user","content":"hello"}]}'`} />
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Custom domain</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">The public instance is available at <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/</code>. Use this URL as the base for any OpenAI-compatible client, or configure your own custom domain in the Cloudflare dashboard.</p>
+        <h2 class="text-xl font-bold mb-4">Custom domain</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-4">The public instance is available at <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/</code>. Use this URL as the base for any OpenAI-compatible client, or configure your own custom domain in the Cloudflare dashboard.</p>
       </div>
     </section>
   </main>
