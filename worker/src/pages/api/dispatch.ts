@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { extractToken, resolveUser, jsonResponse, unauthorized } from '../../lib/auth'
+import { extractToken, resolveUser, getUserKey, jsonResponse, unauthorized } from '../../lib/auth'
 
 async function pickBestFreeModel(): Promise<string> {
   const resp = await fetch('https://openrouter.ai/api/v1/models')
@@ -72,9 +72,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   // Fire LLM call with USER's OpenRouter key
   const ctx = locals.runtime.ctx
-  const userKey = user.openrouter_key
+  const userKey = getUserKey(user, 'openrouter')
 
   ctx.waitUntil((async () => {
+    if (!userKey) {
+      job.status = 'error'
+      job.error = 'No OpenRouter key configured'
+      job.finished = new Date().toISOString()
+      await env.JOBS.put(`job:${token}:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
+      return
+    }
     const start = Date.now()
     try {
       const messages: { role: string; content: string }[] = []
