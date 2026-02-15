@@ -36,12 +36,12 @@ echo $RESULT | jq -r .result`} />
       </div>
       <div>
         <h2 class="text-xl font-bold mb-3">OpenAI SDK (drop-in)</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Point any OpenAI-compatible client at chomp's local proxy:</p>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Point any OpenAI-compatible client at chomp:</p>
         <Code code={`from openai import OpenAI
 
-# Point at local chomp proxy
+# Point at chomp
 client = OpenAI(
-    base_url="http://localhost:8001/v1",
+    base_url="https://chomp.coey.dev/v1",
     api_key="your-chomp-token",
 )
 
@@ -74,7 +74,7 @@ const { id } = await response.json()
       <div>
         <h2 class="text-xl font-bold mb-3">When to use which</h2>
         <ul class="list-disc pl-6 space-y-2 mb-3 text-zinc-600 dark:text-zinc-400">
-          <li>Local proxy (<code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">/v1/chat/completions</code>) for synchronous, low-latency calls.</li>
+          <li>OpenAI-compatible endpoint (<code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">/v1/chat/completions</code>) for synchronous, low-latency calls.</li>
           <li>Dispatch API (<code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">/api/dispatch</code> + <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">/api/result</code>) for async, long-running tasks.</li>
           <li>MCP tools for Claude Desktop, Cursor, and other MCP clients.</li>
         </ul>

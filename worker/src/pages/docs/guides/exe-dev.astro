@@ -3,70 +3,53 @@ import Layout from '../../../layouts/Layout.astro'
 import Nav from '../../../components/Nav.astro'
 import Code from '../../../components/Code.astro'
 ---
-<Layout title="Install on exe.dev" description="Run chomp as a systemd service on your exe.dev VM." path="/docs/guides/exe-dev" type="article" keywords="chomp, exe.dev, install, systemd, self-host, Go, VM">
+<Layout title="Deploy on Cloudflare Workers" description="How chomp runs on Cloudflare Workers and how to deploy it." path="/docs/guides/exe-dev" type="article" keywords="chomp, Cloudflare Workers, deploy, self-host, API">
   <Nav active="/docs/guides" />
   <main class="max-w-3xl mx-auto px-5 py-12">
     <div class="text-sm font-semibold text-green-500 mb-2">How-to guide</div>
-    <h1 class="text-3xl font-bold tracking-tight mb-2">Install on exe.dev</h1>
-    <p class="text-zinc-500 dark:text-zinc-400 mb-10">Run chomp as a systemd service on your exe.dev VM.</p>
+    <h1 class="text-3xl font-bold tracking-tight mb-2">Deploy on Cloudflare Workers</h1>
+    <p class="text-zinc-500 dark:text-zinc-400 mb-10">How chomp runs on Cloudflare Workers and how to deploy it yourself.</p>
     <section class="space-y-12">
       <div>
         <h2 class="text-xl font-bold mb-3">Prerequisites</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">An <a href="https://exe.dev" class="text-green-500 hover:underline">exe.dev</a> VM with Go 1.22+ installed.</p>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">A <a href="https://www.cloudflare.com" class="text-green-500 hover:underline">Cloudflare</a> account with Workers enabled, and <a href="https://bun.sh" class="text-green-500 hover:underline">Bun</a> installed locally.</p>
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Clone and build</h2>
+        <h2 class="text-xl font-bold mb-3">Clone the repo</h2>
         <Code code={`git clone https://github.com/acoyfellow/chomp.git
-cd chomp
-go build -o chomp-server server.go`} />
+cd chomp/worker
+bun install`} />
       </div>
       <div>
         <h2 class="text-xl font-bold mb-3">Configure API keys</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Create <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">state/.env</code> with your router API keys. You only need the ones you want to use:</p>
-        <Code code={`cat > state/.env << 'EOF'
-CHOMP_API_TOKEN=your-secret-token
-GROQ_API_KEY=gsk_...
-OPENROUTER_API_KEY=sk-or-...
-# Optional: CEREBRAS_API_KEY, SAMBANOVA_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY
-EOF`} />
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Set your secrets via Wrangler. You only need the routers you want to use:</p>
+        <Code code={`bunx wrangler secret put CHOMP_API_TOKEN
+bunx wrangler secret put GROQ_API_KEY
+bunx wrangler secret put OPENROUTER_API_KEY
+# Optional: CEREBRAS_API_KEY, SAMBANOVA_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY`} />
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Install as systemd service</h2>
-        <Code code={`sudo tee /etc/systemd/system/chomp.service << 'EOF'
-[Unit]
-Description=chomp LLM proxy
-After=network.target
-
-[Service]
-ExecStart=/home/exedev/chomp/chomp-server
-WorkingDirectory=/home/exedev/chomp
-Restart=always
-EnvironmentFile=/home/exedev/chomp/state/.env
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable chomp
-sudo systemctl start chomp`} />
+        <h2 class="text-xl font-bold mb-3">Deploy</h2>
+        <Code code={`cd worker
+bun run build
+bunx wrangler deploy`} />
       </div>
       <div>
         <h2 class="text-xl font-bold mb-3">Verify</h2>
-        <Code code={`curl http://localhost:8001/
+        <Code code={`curl https://chomp.coey.dev/
 # {"name":"chomp","version":"2.0.0","routers":2}
 
-curl http://localhost:8001/v1/models
+curl https://chomp.coey.dev/v1/models
 # Lists all models from configured routers
 
-curl -X POST http://localhost:8001/v1/chat/completions \\
+curl -X POST https://chomp.coey.dev/v1/chat/completions \\
   -H "Authorization: Bearer $CHOMP_API_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"auto","messages":[{"role":"user","content":"hello"}]}'`} />
       </div>
       <div>
-        <h2 class="text-xl font-bold mb-3">Expose via exe.dev proxy</h2>
-        <p class="text-zinc-600 dark:text-zinc-400 mb-3">Your chomp instance is accessible at <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://yourname.exe.xyz:8001/</code>. Use this URL as the base for any OpenAI-compatible client.</p>
+        <h2 class="text-xl font-bold mb-3">Custom domain</h2>
+        <p class="text-zinc-600 dark:text-zinc-400 mb-3">The public instance is available at <code class="bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-sm">https://chomp.coey.dev/</code>. Use this URL as the base for any OpenAI-compatible client, or configure your own custom domain in the Cloudflare dashboard.</p>
       </div>
     </section>
   </main>

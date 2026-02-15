@@ -1,118 +1,137 @@
 # chomp
 
-Local OpenAI-compatible LLM proxy. Routes to 7 free/cheap model providers, exposes a standard `/v1/chat/completions` endpoint. Built for AI agents to offload work to free models.
+OpenAI-compatible LLM proxy on Cloudflare Workers. Routes to 6 free/cheap model providers via a standard `/v1/chat/completions` endpoint.
 
-**[Docs](https://chomp.coey.dev)** · **[Source](https://github.com/acoyfellow/chomp)**
-
-![chomp — Two routers. 50+ free models. Zero cost.](https://raw.githubusercontent.com/acoyfellow/chomp/main/screenshot.png)
+**[chomp.coey.dev](https://chomp.coey.dev)** · **[Docs](https://chomp.coey.dev/docs)** · **[Source](https://github.com/acoyfellow/chomp)**
 
 ## Quick start
 
+Register your provider API keys:
+
 ```bash
-# Build
-go build -o chomp-server server.go
-
-# Configure
-cp state/.env.example state/.env  # add your API keys
-
-# Run
-./chomp-server
-# or: systemctl start chomp
-
-# Use
-curl http://localhost:8001/v1/chat/completions \
-  -H "Authorization: Bearer $CHOMP_API_TOKEN" \
+curl -X POST https://chomp.coey.dev/api/keys \
   -H "Content-Type: application/json" \
-  -d '{"model": "llama-3.3-70b", "messages": [{"role": "user", "content": "hello"}]}'
+  -d '{
+    "groq": "gsk_...",
+    "cerebras": "csk_...",
+    "sambanova": "sk_..."
+  }'
+# → { "token": "chomp_abc123..." }
 ```
+
+Use the returned token with any OpenAI-compatible client:
+
+```bash
+curl https://chomp.coey.dev/v1/chat/completions \
+  -H "Authorization: Bearer chomp_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "groq/llama-3.3-70b-versatile",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+```
+
+Or with the OpenAI SDK:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://chomp.coey.dev/v1",
+    api_key="chomp_abc123..."
+)
+
+response = client.chat.completions.create(
+    model="groq/llama-3.3-70b-versatile",
+    messages=[{"role": "user", "content": "hello"}]
+)
+```
+
+## Model prefix convention
+
+Models are addressed as `router/model-name`:
+
+```
+groq/llama-3.3-70b-versatile   →  router: groq,     model: llama-3.3-70b-versatile
+cerebras/llama-3.3-70b         →  router: cerebras,  model: llama-3.3-70b
+zen/minimax-m2.5-free          →  router: zen,       model: minimax-m2.5-free
+```
+
+If no prefix is given, chomp picks the first router that has a matching model.
 
 ## API
 
-OpenAI-compatible. Point any client at `http://localhost:8001`.
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | Chat completions proxy (streaming supported) |
+| `GET` | `/v1/models` | Aggregated model list across all providers |
+| `POST` | `/api/dispatch` | Async task dispatch |
+| `GET` | `/api/result/[id]` | Poll async result |
+| `GET` | `/api/jobs` | List jobs |
+| `POST` | `/api/keys` | Register API keys → receive a chomp token |
+| `GET` | `/api/keys` | Check key status |
+| `DELETE` | `/api/keys` | Revoke token |
+| `GET` | `/api/models/free` | Free model list |
 
-| Endpoint | Description |
-| --- | --- |
-| `POST /v1/chat/completions` | Chat completions (streaming supported) |
-| `GET /v1/models` | List available models |
-| `POST /api/dispatch` | Async task dispatch |
-| `GET /api/result/:id` | Poll async result |
-| `GET /` | Dashboard (HTMX) |
-
-Auth: `Authorization: Bearer <CHOMP_API_TOKEN>`
+Auth: `Authorization: Bearer <chomp_token>`
 
 ## Routers
 
-7 providers, configured via env vars in `state/.env`:
+6 providers, each configured with its own API key:
 
-| Router | Env var |
-| --- | --- |
-| OpenCode Zen | `OPENCODE_ZEN_API_KEY` |
-| Groq | `GROQ_API_KEY` |
-| Cerebras | `CEREBRAS_API_KEY` |
-| SambaNova | `SAMBANOVA_API_KEY` |
-| Together | `TOGETHER_API_KEY` |
-| Fireworks | `FIREWORKS_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
+| Router | ID | Default model |
+| --- | --- | --- |
+| OpenCode Zen | `zen` | `minimax-m2.5-free` |
+| Groq | `groq` | `llama-3.3-70b-versatile` |
+| Cerebras | `cerebras` | `llama-3.3-70b` |
+| SambaNova | `sambanova` | `Meta-Llama-3.3-70B-Instruct` |
+| Fireworks | `fireworks` | `accounts/fireworks/models/llama-v3p3-70b-instruct` |
+| OpenRouter | `openrouter` | `auto` |
 
-Also:
+Users bring their own keys — register them via `POST /api/keys` to get a chomp token.
 
-| Var | Purpose |
-| --- | --- |
-| `CHOMP_API_TOKEN` | Bearer token for client auth |
-| `PORT` | Listen port (default `8001`) |
+## MCP server
+
+Built-in MCP server for AI agent integration, available at `/mcp`. Built with Effect-ts.
 
 ## Structure
 
 ```
 chomp/
-├── server.go              Go server: /v1/ proxy + /api/ + dashboard (~2500 lines)
-├── server_test.go         89 tests
-├── bin/chomp              CLI (bash + jq)
-├── adapters/              Agent dispatch scripts (shelley, opencode, etc)
-├── templates/             Go html/template (HTMX dashboard)
-├── static/                CSS + HTMX
 ├── worker/                Astro site → chomp.coey.dev (Cloudflare Workers)
-├── .github/workflows/     CI/CD: deploy Astro to CF on push
-├── Dockerfile             Multi-stage Go build
-├── state/                 Runtime: state.json, .env (gitignored)
+│   ├── src/
+│   │   ├── pages/         index, docs/*, api routes, v1/ proxy
+│   │   ├── components/    Nav, Code, SEO
+│   │   ├── layouts/       Layout.astro
+│   │   ├── lib/           auth.ts, routers.ts
+│   │   ├── mcp/           MCP server (Effect-ts)
+│   │   └── styles/        global.css (Tailwind v4)
+│   ├── wrangler.jsonc     CF Workers config + KV bindings
+│   └── astro.config.mjs   SSR + Cloudflare adapter
+├── .github/workflows/     CI/CD
 ├── AGENTS.md              Agent instructions
-└── llms.txt               LLM-readable project summary
+└── README.md
 ```
 
-## Run with Docker
+## Development
 
 ```bash
-docker build -t chomp .
-docker run -d --name chomp --restart unless-stopped \
-  -p 8001:8001 \
-  -v $(pwd)/state:/app/state \
-  chomp
-```
-
-## Run with systemd
-
-```ini
-[Unit]
-Description=chomp LLM proxy
-After=network.target
-
-[Service]
-ExecStart=/path/to/chomp-server
-WorkingDirectory=/path/to/chomp
-Restart=always
-EnvironmentFile=/path/to/chomp/state/.env
-
-[Install]
-WantedBy=multi-user.target
+cd worker
+bun install
+bun run dev
 ```
 
 ## Tests
 
 ```bash
-go test -v ./...
+cd worker
+bunx tsc --noEmit
+bun run build
 ```
 
-89 tests covering routers, auth, streaming, task dispatch, and dashboard rendering.
+## Deployment
+
+Push to `main` → CI builds and deploys to Cloudflare Workers.
 
 ## License
 
