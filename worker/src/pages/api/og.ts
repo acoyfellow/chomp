@@ -58,7 +58,7 @@ function generateSVG(title: string, description: string): string {
   <!-- Description -->
   ${descText}
   <!-- Footer -->
-  <text x="60" y="590" font-family="sans-serif" font-size="16" fill="rgba(255,255,255,0.4)">chomp.coey.dev — free AI model dispatch</text>
+  <text x="60" y="590" font-family="sans-serif" font-size="16" fill="rgba(255,255,255,0.4)">chomp.coey.dev</text>
   <!-- Corner accent -->
   <rect x="1140" y="0" width="60" height="4" fill="#c8a630"/>
 </svg>`
