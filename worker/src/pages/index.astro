@@ -2,52 +2,46 @@
 import Layout from '../layouts/Layout.astro'
 import Nav from '../components/Nav.astro'
 
-const snippet = `<code><span class="text-zinc-500"># dispatch via OpenCode Zen (free models, no key needed)</span>
-curl -X POST https://chomp.coey.dev/api/dispatch \\
+const snippet = `<code><span class="text-zinc-500"># get a chomp token (bring your OpenRouter key)</span>
+curl -X POST https://chomp.coey.dev/api/keys \\
+  -H "Content-Type: application/json" \\
+  -d '{"openrouter_key": "sk-or-your-key"}'\n\n<span class="text-zinc-500"># dispatch a prompt to a free model</span>\ncurl -X POST https://chomp.coey.dev/api/dispatch \\
   -H "Authorization: Bearer $CHOMP_TOKEN" \\
-  -d '{"prompt": "Explain quicksort in 3 sentences.", "router": "zen"}'
-
-<span class="text-zinc-500"># or via OpenRouter (BYO key, more models)</span>
-curl -X POST https://chomp.coey.dev/api/dispatch \\
-  -H "Authorization: Bearer $CHOMP_TOKEN" \\
-  -d '{"prompt": "Explain quicksort in 3 sentences.", "router": "openrouter"}'
-
-<span class="text-zinc-500"># or let chomp pick the best available router</span>
-curl -X POST https://chomp.coey.dev/api/dispatch \\
-  -H "Authorization: Bearer $CHOMP_TOKEN" \\
-  -d '{"prompt": "Explain quicksort in 3 sentences."}'</code>`
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "Explain quicksort in 3 sentences."}'\n\n<span class="text-zinc-500"># poll for the result</span>\ncurl https://chomp.coey.dev/api/result/$JOB_ID \\
+  -H "Authorization: Bearer $CHOMP_TOKEN"</code>`
 ---
 <Layout
   title="Free AI Model Dispatch"
-  description="Two routers. 50+ free models. Zero cost."
+  description="Dispatch prompts to 20+ free AI models. OpenAI-compatible API and MCP server."
   path="/"
-  keywords="free AI models, OpenRouter, OpenCode Zen, API, LLM, dispatch, free tokens"
+  keywords="free AI models, OpenRouter, MCP, Model Context Protocol, API, LLM, dispatch, Claude Desktop, Cursor"
 >
   <Nav active="/" />
   <main class="max-w-3xl mx-auto px-5 py-16">
     <h1 class="text-4xl font-bold tracking-tight mb-3">chomp<span class="text-gold">.</span></h1>
-    <p class="text-xl text-zinc-500 dark:text-zinc-400 mb-10 max-w-lg">Two routers. 50+ free models. Zero cost.</p>
+    <p class="text-xl text-zinc-500 dark:text-zinc-400 mb-10 max-w-lg">Free AI models. One API. Also an MCP server.</p>
 
     <div class="grid sm:grid-cols-2 gap-4 mb-12">
       <a href="/docs" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
         <div class="text-sm font-semibold text-gold mb-1">Tutorial</div>
         <div class="font-semibold mb-1">Send your first prompt</div>
-        <div class="text-sm text-zinc-500">5 minutes. Two routers. Zero cost.</div>
+        <div class="text-sm text-zinc-500">5 minutes. BYO OpenRouter key.</div>
       </a>
-      <a href="/docs/reference" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
-        <div class="text-sm font-semibold text-blue-500 mb-1">Reference</div>
-        <div class="font-semibold mb-1">API Reference</div>
-        <div class="text-sm text-zinc-500">Every endpoint, parameter, and error code.</div>
+      <a href="/docs/guides/mcp" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+        <div class="text-sm font-semibold text-green-500 mb-1">MCP</div>
+        <div class="font-semibold mb-1">Install as MCP server</div>
+        <div class="text-sm text-zinc-500">Claude Desktop, Cursor, any MCP client.</div>
       </a>
       <a href="/docs/guides" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
-        <div class="text-sm font-semibold text-green-500 mb-1">How-to</div>
-        <div class="font-semibold mb-1">Guides</div>
-        <div class="text-sm text-zinc-500">Fan out prompts, handle rate limits, pick models.</div>
+        <div class="text-sm font-semibold text-blue-500 mb-1">Guides</div>
+        <div class="font-semibold mb-1">Agent tool, self-host, more</div>
+        <div class="text-sm text-zinc-500">Use as a tool, install on exe.dev, fan out prompts.</div>
       </a>
-      <a href="/docs/concepts" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
-        <div class="text-sm font-semibold text-purple-500 mb-1">Explanation</div>
-        <div class="font-semibold mb-1">Concepts</div>
-        <div class="text-sm text-zinc-500">How routing works, free models, rate limits.</div>
+      <a href="/docs/reference" class="group block p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-gold dark:hover:border-gold transition-colors">
+        <div class="text-sm font-semibold text-purple-500 mb-1">Reference</div>
+        <div class="font-semibold mb-1">API Reference</div>
+        <div class="text-sm text-zinc-500">Every endpoint, parameter, and error code.</div>
       </a>
     </div>
 
