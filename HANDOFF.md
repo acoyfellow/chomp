@@ -1,3 +1,16 @@
+## Status: ✅ COMPLETE (all 4 phases done)
+
+All Go server code has been consolidated into CF Workers. One codebase, one deploy.
+
+**Completed:**
+- Phase 1: Shared router infrastructure (routers.ts) + multi-key auth
+- Phase 2: /v1/chat/completions proxy + /v1/models aggregated listing
+- Phase 3: Dispatch + MCP tools use shared routers
+- Phase 4: Deleted Go files, updated CI/docs/pre-push
+- All checks pass: tsc, build, MCP smoke test, pre-push gate
+
+---
+
 # HANDOFF: Kill Go server, consolidate into CF Workers
 
 ## Goal
