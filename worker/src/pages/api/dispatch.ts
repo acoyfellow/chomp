@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro'
-import { extractToken, resolveUser, getUserKey, jsonResponse, unauthorized } from '../../lib/auth'
+import { extractToken, resolveUser, getUserKey, getFirstAvailableRouter, jsonResponse, unauthorized } from '../../lib/auth'
+import { routers, getRouter, resolveRouterAndModel, callRouter } from '../../lib/routers'
 
 async function pickBestFreeModel(): Promise<string> {
   const resp = await fetch('https://openrouter.ai/api/v1/models')
@@ -25,7 +26,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const user = await resolveUser(token, env.JOBS)
   if (!user) return unauthorized()
 
-  let body: { prompt?: string; model?: string; system?: string }
+  let body: { prompt?: string; model?: string; system?: string; router?: string }
   try {
     body = await request.json()
   } catch {
@@ -35,11 +36,42 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ error: 'prompt required' }, 400)
   }
 
+  // --- Router resolution chain ---
+  let routerId: string | undefined = body.router
   let model = body.model || 'auto'
+
+  // If no explicit router, try extracting from model prefix (e.g. "groq/llama-3.3-70b")
+  if (!routerId && model !== 'auto') {
+    const resolved = resolveRouterAndModel(model)
+    if (resolved.router) {
+      routerId = resolved.router
+      model = resolved.model
+    }
+  }
+
+  // If still no router, pick the first one the user has a key for
+  if (!routerId) {
+    routerId = getFirstAvailableRouter(user, routers.map(r => r.id)) ?? undefined
+  }
+
+  if (!routerId) {
+    return jsonResponse({ error: 'No router available — configure at least one API key' }, 400)
+  }
+
+  const routerDef = getRouter(routerId)
+  if (!routerDef) {
+    return jsonResponse({ error: `Unknown router: ${routerId}` }, 400)
+  }
+
+  // --- Model resolution ---
   if (model === 'auto') {
-    try { model = await pickBestFreeModel() }
-    catch (e) {
-      return jsonResponse({ error: (e as Error).message }, 502)
+    if (routerId === 'openrouter') {
+      try { model = await pickBestFreeModel() }
+      catch (e) {
+        return jsonResponse({ error: (e as Error).message }, 502)
+      }
+    } else {
+      model = routerDef.defaultModel
     }
   }
 
@@ -49,6 +81,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     prompt: body.prompt,
     system: body.system || '',
     model,
+    router: routerId,
     status: 'running',
     result: '',
     error: '',
@@ -70,47 +103,38 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (index.length > 100) index.length = 100
   await env.JOBS.put(indexKey, JSON.stringify(index))
 
-  // Fire LLM call with USER's OpenRouter key
+  // Fire LLM call with USER's key for the resolved router
   const ctx = locals.runtime.ctx
-  const userKey = getUserKey(user, 'openrouter')
+  const apiKey = getUserKey(user, routerId)
 
   ctx.waitUntil((async () => {
-    if (!userKey) {
-      job.status = 'error'
-      job.error = 'No OpenRouter key configured'
-      job.finished = new Date().toISOString()
-      await env.JOBS.put(`job:${token}:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
-      return
-    }
     const start = Date.now()
     try {
+      if (!apiKey) {
+        job.status = 'error'
+        job.error = `No ${routerDef.name} key configured`
+        job.finished = new Date().toISOString()
+        await env.JOBS.put(`job:${token}:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
+        return
+      }
+
       const messages: { role: string; content: string }[] = []
       if (body.system) messages.push({ role: 'system', content: body.system })
       messages.push({ role: 'user', content: body.prompt! })
 
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${userKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://chomp.coey.dev',
-          'X-Title': 'chomp',
-        },
-        body: JSON.stringify({ model, messages }),
+      const data = await callRouter({
+        router: routerDef,
+        apiKey,
+        model,
+        messages,
       })
-
-      const data = await resp.json() as {
-        choices?: { message: { content: string } }[]
-        usage?: { prompt_tokens: number; completion_tokens: number }
-        error?: { message: string }
-      }
 
       job.latency_ms = Date.now() - start
       job.finished = new Date().toISOString()
 
-      if (!resp.ok || data.error) {
+      if (data.error) {
         job.status = 'error'
-        job.error = data.error?.message || `OpenRouter ${resp.status}`
+        job.error = data.error.message || `${routerDef.name} error`
       } else {
         job.status = 'done'
         job.result = data.choices?.[0]?.message?.content || ''
@@ -126,5 +150,5 @@ export const POST: APIRoute = async ({ request, locals }) => {
     await env.JOBS.put(`job:${token}:${id}`, JSON.stringify(job), { expirationTtl: 86400 })
   })())
 
-  return jsonResponse({ id, model, status: 'running' })
+  return jsonResponse({ id, model, router: routerId, status: 'running' })
 }

@@ -40,7 +40,7 @@ const catchAll = <R>(effect: Effect.Effect<CallToolResult, ToolError, R>) =>
  * ask — dispatch a prompt, poll until done, return the text result.
  */
 export const ask = (
-  params: { prompt: string; model?: string; system?: string },
+  params: { prompt: string; model?: string; system?: string; router?: string },
   token: string,
   kv: KVNamespace,
   ctx: ExecutionContext,
@@ -52,6 +52,7 @@ export const ask = (
         prompt: params.prompt,
         model: params.model,
         system: params.system,
+        router: params.router,
         token,
         kv,
         ctx,
@@ -83,7 +84,7 @@ export const ask = (
  * dispatch — fire-and-forget, return job ID immediately.
  */
 export const dispatch = (
-  params: { prompt: string; model?: string; system?: string },
+  params: { prompt: string; model?: string; system?: string; router?: string },
   token: string,
   kv: KVNamespace,
   ctx: ExecutionContext,
@@ -95,6 +96,7 @@ export const dispatch = (
         prompt: params.prompt,
         model: params.model,
         system: params.system,
+        router: params.router,
         token,
         kv,
         ctx,

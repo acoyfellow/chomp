@@ -9,9 +9,13 @@ import {
   ModelError,
 } from "./errors.js"
 import type { Job } from "./schemas.js"
+import { resolveUser as resolveUserFromKV, getUserKey, getFirstAvailableRouter } from "../lib/auth.js"
+import type { UserRecord } from "../lib/auth.js"
+import { routers, getRouter, resolveRouterAndModel, callRouter } from "../lib/routers.js"
+import type { OpenAIResponse } from "../lib/routers.js"
 
 // ---------------------------------------------------------------------------
-// OpenRouter types
+// OpenRouter types (for free model listing)
 // ---------------------------------------------------------------------------
 
 interface OpenRouterModel {
@@ -21,24 +25,18 @@ interface OpenRouterModel {
   top_provider?: { max_completion_tokens?: number }
 }
 
-interface ChatCompletionResponse {
-  choices?: { message: { content: string } }[]
-  usage?: { prompt_tokens: number; completion_tokens: number }
-  error?: { message: string }
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const resolveUser = (token: string, kv: KVNamespace) =>
   Effect.tryPromise({
-    try: () => kv.get(`user:${token}`),
+    try: () => resolveUserFromKV(token, kv),
     catch: () => new AuthError({ message: "KV lookup failed" }),
   }).pipe(
-    Effect.flatMap((raw) =>
-      raw
-        ? Effect.succeed(JSON.parse(raw) as { openrouter_key: string; created: string })
+    Effect.flatMap((user) =>
+      user
+        ? Effect.succeed(user)
         : Effect.fail(new AuthError({ message: "Invalid token" }))
     )
   )
@@ -92,6 +90,7 @@ export class ChompService extends Context.Tag("ChompService")<
     readonly dispatch: (params: {
       prompt: string
       model?: string
+      router?: string
       system?: string
       token: string
       kv: KVNamespace
@@ -131,10 +130,53 @@ const dispatch: ChompService["Type"]["dispatch"] = (params) =>
     // 1. Authenticate
     const user = yield* resolveUser(token, kv)
 
-    // 2. Resolve model
+    // 2. Resolve router and model
+    let routerId = params.router
     let model = params.model || "auto"
+
+    // If model is "auto", pick best free model via OpenRouter
     if (model === "auto") {
       model = yield* pickBestFreeModel()
+    }
+
+    // Check if model string contains a router prefix (e.g. "groq/llama-3.3-70b")
+    if (!routerId) {
+      const resolved = resolveRouterAndModel(model)
+      if (resolved.router) {
+        routerId = resolved.router
+        model = resolved.model
+      }
+    }
+
+    // If still no router, pick the first one the user has a key for
+    if (!routerId) {
+      const allRouterIds = routers.map((r) => r.id)
+      const found = getFirstAvailableRouter(user, allRouterIds)
+      if (!found) {
+        return yield* new DispatchError({
+          message: "No router available — user has no API keys configured",
+          statusCode: 400,
+        })
+      }
+      routerId = found
+    }
+
+    // Resolve the router definition
+    const routerDef = getRouter(routerId)
+    if (!routerDef) {
+      return yield* new DispatchError({
+        message: `Unknown router: ${routerId}`,
+        statusCode: 400,
+      })
+    }
+
+    // Get the user's API key for this router
+    const apiKey = getUserKey(user, routerId)
+    if (!apiKey) {
+      return yield* new DispatchError({
+        message: `No API key configured for router: ${routerDef.name}`,
+        statusCode: 400,
+      })
     }
 
     // 3. Generate job ID
@@ -146,7 +188,7 @@ const dispatch: ChompService["Type"]["dispatch"] = (params) =>
       id,
       prompt,
       system: system || "",
-      model,
+      model: `${routerId}/${model}`,
       status: "running" as string,
       result: "",
       error: "",
@@ -185,7 +227,9 @@ const dispatch: ChompService["Type"]["dispatch"] = (params) =>
     })
 
     // 7. Fire LLM call via waitUntil (non-blocking for dispatch)
-    const userKey = user.openrouter_key
+    const finalModel = model
+    const finalRouterDef = routerDef
+    const finalApiKey = apiKey
     ctx.waitUntil(
       (async () => {
         const start = Date.now()
@@ -194,28 +238,19 @@ const dispatch: ChompService["Type"]["dispatch"] = (params) =>
           if (system) messages.push({ role: "system", content: system })
           messages.push({ role: "user", content: prompt })
 
-          const resp = await fetch(
-            "https://openrouter.ai/api/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${userKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://chomp.coey.dev",
-                "X-Title": "chomp",
-              },
-              body: JSON.stringify({ model, messages }),
-            }
-          )
-
-          const data = (await resp.json()) as ChatCompletionResponse
+          const data = await callRouter({
+            router: finalRouterDef,
+            apiKey: finalApiKey,
+            model: finalModel,
+            messages,
+          })
 
           job.latency_ms = Date.now() - start
           job.finished = new Date().toISOString()
 
-          if (!resp.ok || data.error) {
+          if (data.error) {
             job.status = "error"
-            job.error = data.error?.message || `OpenRouter ${resp.status}`
+            job.error = data.error.message
           } else {
             job.status = "done"
             job.result = data.choices?.[0]?.message?.content || ""
@@ -234,7 +269,7 @@ const dispatch: ChompService["Type"]["dispatch"] = (params) =>
       })()
     )
 
-    return { id, model, status: "running" }
+    return { id, model: job.model, status: "running" }
   })
 
 const getResult: ChompService["Type"]["getResult"] = (params) =>
