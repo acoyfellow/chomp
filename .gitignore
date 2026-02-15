@@ -6,3 +6,21 @@ state/
 *.db-wal
 *.db-shm
 .env
+
+# Research artifacts
+*-research.md
+*-research-*.md
+CLOUDFLARE_*.md
+EFFECT_*.md
+column-tax-api-research.md
+pi-architecture-summary.md
+research-summarize-tool.md
+
+# IDE / local
+worker/.vscode/
+worker/.wrangler/
+worker/README.md
+node_modules/
+package.json
+package-lock.json
+docs/
